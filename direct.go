@@ -6,7 +6,6 @@ package squirrel
 import (
 	"errors"
 	"fmt"
-	"io"
 	"runtime"
 	"sync"
 	"time"
@@ -15,7 +14,7 @@ import (
 	"crawshaw.io/sqlite/sqlitex"
 )
 
-type NewDirectStorageOpts struct {
+type NewCacheOpts struct {
 	NewConnOpts
 	InitDbOpts
 	InitConnOpts
@@ -24,13 +23,13 @@ type NewDirectStorageOpts struct {
 	BlobFlushInterval time.Duration
 }
 
-func NewSquirrelCache(opts NewDirectStorageOpts) (_ *SquirrelCache, err error) {
+func NewCache(opts NewCacheOpts) (_ *Cache, err error) {
 	conn, err := newConn(opts.NewConnOpts)
 	if err != nil {
 		return
 	}
 	if opts.PageSize == 0 {
-		// The largest size sqlite supports. I think we want this to be the smallest SquirrelBlob size we
+		// The largest size sqlite supports. I think we want this to be the smallest Blob size we
 		// can expect, which is probably 1<<17.
 		opts.PageSize = 1 << 16
 	}
@@ -49,7 +48,7 @@ func NewSquirrelCache(opts NewDirectStorageOpts) (_ *SquirrelCache, err error) {
 		// a few chances at getting a transaction through.
 		opts.BlobFlushInterval = time.Second
 	}
-	cl := &SquirrelCache{
+	cl := &Cache{
 		conn:  conn,
 		blobs: make(map[string]*sqlite.Blob),
 		opts:  opts,
@@ -63,7 +62,7 @@ func NewSquirrelCache(opts NewDirectStorageOpts) (_ *SquirrelCache, err error) {
 	return cl, nil
 }
 
-func (cl *SquirrelCache) GetCapacity() (ret *int64) {
+func (cl *Cache) GetCapacity() (ret *int64) {
 	cl.l.Lock()
 	defer cl.l.Unlock()
 	err := sqlitex.Exec(cl.conn, "select value from setting where name='capacity'", func(stmt *sqlite.Stmt) error {
@@ -77,20 +76,16 @@ func (cl *SquirrelCache) GetCapacity() (ret *int64) {
 	return
 }
 
-type SquirrelCache struct {
+type Cache struct {
 	l           sync.Mutex
 	conn        conn
 	blobs       map[string]*sqlite.Blob
 	blobFlusher *time.Timer
-	opts        NewDirectStorageOpts
+	opts        NewCacheOpts
 	closed      bool
 }
 
-type client struct {
-	*SquirrelCache
-}
-
-func (c *SquirrelCache) blobFlusherFunc() {
+func (c *Cache) blobFlusherFunc() {
 	c.l.Lock()
 	defer c.l.Unlock()
 	c.flushBlobs()
@@ -99,7 +94,7 @@ func (c *SquirrelCache) blobFlusherFunc() {
 	}
 }
 
-func (c *SquirrelCache) flushBlobs() {
+func (c *Cache) flushBlobs() {
 	for key, b := range c.blobs {
 		// Need the lock to prevent racing with the GC finalizers.
 		b.Close()
@@ -107,7 +102,7 @@ func (c *SquirrelCache) flushBlobs() {
 	}
 }
 
-func (c *SquirrelCache) Close() (err error) {
+func (c *Cache) Close() (err error) {
 	c.l.Lock()
 	defer c.l.Unlock()
 	c.flushBlobs()
@@ -151,19 +146,13 @@ func rowidForBlob(c conn, name string, length int64, create bool) (rowid int64, 
 	return
 }
 
-type SquirrelBlob struct {
+type Blob struct {
 	Name   string
 	Length int64
-	*SquirrelCache
+	*Cache
 }
 
-type piece struct {
-	sb SquirrelBlob
-	io.ReaderAt
-	io.WriterAt
-}
-
-func (p SquirrelBlob) doAtIoWithBlob(
+func (p Blob) doAtIoWithBlob(
 	atIo func(*sqlite.Blob) func([]byte, int64) (int, error),
 	b []byte,
 	off int64,
@@ -204,30 +193,26 @@ func (p SquirrelBlob) doAtIoWithBlob(
 	return atIo(blob)(b, off)
 }
 
-func (p SquirrelBlob) ReadAt(b []byte, off int64) (n int, err error) {
+func (p Blob) ReadAt(b []byte, off int64) (n int, err error) {
 	return p.doAtIoWithBlob(func(blob *sqlite.Blob) func([]byte, int64) (int, error) {
 		return blob.ReadAt
 	}, b, off, false)
 }
 
-func (p SquirrelBlob) WriteAt(b []byte, off int64) (n int, err error) {
+func (p Blob) WriteAt(b []byte, off int64) (n int, err error) {
 	return p.doAtIoWithBlob(func(blob *sqlite.Blob) func([]byte, int64) (int, error) {
 		return blob.WriteAt
 	}, b, off, true)
 }
 
-func (p SquirrelBlob) SetTag(name string, value interface{}) error {
+func (p Blob) SetTag(name string, value interface{}) error {
 	p.l.Lock()
 	defer p.l.Unlock()
 	return sqlitex.Exec(p.conn, "insert or replace into tag (blob_name, tag_name, value) values (?, ?, ?)", nil,
 		p.Name, name, value)
 }
 
-func (p piece) MarkComplete() error {
-	return p.sb.SetTag("verified", true)
-}
-
-func (p SquirrelBlob) forgetBlob() {
+func (p Blob) forgetBlob() {
 	blob, ok := p.blobs[p.Name]
 	if !ok {
 		return
@@ -236,11 +221,7 @@ func (p SquirrelBlob) forgetBlob() {
 	delete(p.blobs, p.Name)
 }
 
-func (p piece) MarkNotComplete() error {
-	return p.sb.SetTag("verified", false)
-}
-
-func (p SquirrelBlob) GetTag(name string, result func(*sqlite.Stmt)) error {
+func (p Blob) GetTag(name string, result func(*sqlite.Stmt)) error {
 	p.l.Lock()
 	defer p.l.Unlock()
 	return sqlitex.Exec(p.conn, "select value from tag where blob_name=? and tag_name=?", func(stmt *sqlite.Stmt) error {
@@ -249,7 +230,7 @@ func (p SquirrelBlob) GetTag(name string, result func(*sqlite.Stmt)) error {
 	}, p.Name, name)
 }
 
-func (p SquirrelBlob) getBlob(create bool) (*sqlite.Blob, error) {
+func (p Blob) getBlob(create bool) (*sqlite.Blob, error) {
 	blob, ok := p.blobs[p.Name]
 	if !ok {
 		rowid, err := rowidForBlob(p.conn, p.Name, p.Length, create)
