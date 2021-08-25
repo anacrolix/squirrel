@@ -10,8 +10,7 @@ import (
 
 	"crawshaw.io/sqlite"
 	"github.com/alexflint/go-arg"
-
-	sqliteStorage "github.com/anacrolix/torrent/storage/sqlite"
+	"github.com/anacrolix/squirrel"
 )
 
 type InitCommand struct {
@@ -38,7 +37,7 @@ func mainErr() error {
 			return fmt.Errorf("opening sqlite conn: %w", err)
 		}
 		defer conn.Close()
-		return sqliteStorage.InitSchema(conn, 1<<14, true)
+		return squirrel.InitSchema(conn, 1<<14, true)
 	default:
 		p.Fail("expected subcommand")
 		panic("unreachable")

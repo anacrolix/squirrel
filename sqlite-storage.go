@@ -1,7 +1,7 @@
 //go:build cgo
 // +build cgo
 
-package sqliteStorage
+package squirrel
 
 import (
 	_ "embed"
