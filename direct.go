@@ -60,11 +60,10 @@ func NewSquirrelCache(opts NewDirectStorageOpts) (_ *SquirrelCache, err error) {
 	if opts.BlobFlushInterval != 0 {
 		cl.blobFlusher = time.AfterFunc(opts.BlobFlushInterval, cl.blobFlusherFunc)
 	}
-	cl.capacity = cl.getCapacity
 	return cl, nil
 }
 
-func (cl *SquirrelCache) getCapacity() (ret *int64) {
+func (cl *SquirrelCache) GetCapacity() (ret *int64) {
 	cl.l.Lock()
 	defer cl.l.Unlock()
 	err := sqlitex.Exec(cl.conn, "select value from setting where name='capacity'", func(stmt *sqlite.Stmt) error {
@@ -85,7 +84,6 @@ type SquirrelCache struct {
 	blobFlusher *time.Timer
 	opts        NewDirectStorageOpts
 	closed      bool
-	capacity    func() *int64
 }
 
 type client struct {
@@ -154,8 +152,8 @@ func rowidForBlob(c conn, name string, length int64, create bool) (rowid int64, 
 }
 
 type SquirrelBlob struct {
-	name   string
-	length int64
+	Name   string
+	Length int64
 	*SquirrelCache
 }
 
@@ -222,7 +220,7 @@ func (p SquirrelBlob) SetTag(name string, value interface{}) error {
 	p.l.Lock()
 	defer p.l.Unlock()
 	return sqlitex.Exec(p.conn, "insert or replace into tag (blob_name, tag_name, value) values (?, ?, ?)", nil,
-		p.name, name, value)
+		p.Name, name, value)
 }
 
 func (p piece) MarkComplete() error {
@@ -230,12 +228,12 @@ func (p piece) MarkComplete() error {
 }
 
 func (p SquirrelBlob) forgetBlob() {
-	blob, ok := p.blobs[p.name]
+	blob, ok := p.blobs[p.Name]
 	if !ok {
 		return
 	}
 	blob.Close()
-	delete(p.blobs, p.name)
+	delete(p.blobs, p.Name)
 }
 
 func (p piece) MarkNotComplete() error {
@@ -248,13 +246,13 @@ func (p SquirrelBlob) GetTag(name string, result func(*sqlite.Stmt)) error {
 	return sqlitex.Exec(p.conn, "select value from tag where blob_name=? and tag_name=?", func(stmt *sqlite.Stmt) error {
 		result(stmt)
 		return nil
-	}, p.name, name)
+	}, p.Name, name)
 }
 
 func (p SquirrelBlob) getBlob(create bool) (*sqlite.Blob, error) {
-	blob, ok := p.blobs[p.name]
+	blob, ok := p.blobs[p.Name]
 	if !ok {
-		rowid, err := rowidForBlob(p.conn, p.name, p.length, create)
+		rowid, err := rowidForBlob(p.conn, p.Name, p.Length, create)
 		if err != nil {
 			return nil, fmt.Errorf("getting rowid for blob: %w", err)
 		}
@@ -273,7 +271,7 @@ func (p SquirrelBlob) getBlob(create bool) (*sqlite.Blob, error) {
 				blob.Close()
 			})
 		}
-		p.blobs[p.name] = blob
+		p.blobs[p.Name] = blob
 	}
 	return blob, nil
 }
