@@ -35,5 +35,6 @@ Benchmarks are from use in [anacrolix/torrent]:
  * Support transactions?
  * Add an eviction feed?
  * Update times on read, amortize costs by batching updates and flush before executing cache trimming.
+ * Separate Cache and Conn types? This might allow opening extra conns while other writes are ongoing. It's unclear if there's any performance gain to be had since this was tried with the "provider" connection-pool implementations in anacrolix/torrent previously. It might also not play well with tracking blob usage timestamps.
 
 [anacrolix/torrent]: (https://github.com/anacrolix/torrent)
