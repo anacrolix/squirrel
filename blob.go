@@ -11,9 +11,13 @@ import (
 )
 
 type Blob struct {
-	Name   string
-	Length int64
-	Cache  *Cache
+	name   string
+	length int64
+	cache  *Cache
+}
+
+func (p Blob) getBlob(create, clobberLength bool) (*sqlite.Blob, error) {
+	return p.cache.getBlob(p.name, create, p.length, clobberLength)
 }
 
 func (p Blob) doWithBlob(
@@ -21,9 +25,9 @@ func (p Blob) doWithBlob(
 	create bool,
 	clobberLength bool,
 ) (err error) {
-	p.Cache.l.Lock()
-	defer p.Cache.l.Unlock()
-	if p.Cache.opts.NoCacheBlobs {
+	p.cache.l.Lock()
+	defer p.cache.l.Unlock()
+	if p.cache.opts.NoCacheBlobs {
 		defer p.forgetBlob()
 	}
 	blob, err := p.getBlob(create, clobberLength)
@@ -42,7 +46,7 @@ func (p Blob) doWithBlob(
 	// "ABORT" occurs if the row the blob is on is modified elsewhere. "ERROR: invalid blob" occurs
 	// if the blob has been closed. We don't forget blobs that are closed by our GC finalizers,
 	// because they may be attached to names that have since moved on to another blob.
-	if se.Code != sqlite.SQLITE_ABORT && !(p.Cache.opts.GcBlobs && se.Code == sqlite.SQLITE_ERROR && se.Msg == "invalid blob") {
+	if se.Code != sqlite.SQLITE_ABORT && !(p.cache.opts.GcBlobs && se.Code == sqlite.SQLITE_ERROR && se.Msg == "invalid blob") {
 		return
 	}
 	p.forgetBlob()
@@ -77,68 +81,68 @@ func (p Blob) WriteAt(b []byte, off int64) (n int, err error) {
 }
 
 func (p Blob) SetTag(name string, value interface{}) error {
-	p.Cache.l.Lock()
-	defer p.Cache.l.Unlock()
-	return sqlitex.Exec(p.Cache.conn, "insert or replace into tag (blob_name, tag_name, value) values (?, ?, ?)", nil,
-		p.Name, name, value)
+	p.cache.l.Lock()
+	defer p.cache.l.Unlock()
+	return sqlitex.Exec(p.cache.conn, "insert or replace into tag (blob_name, tag_name, value) values (?, ?, ?)", nil,
+		p.name, name, value)
 }
 
 func (p Blob) forgetBlob() {
-	blob, ok := p.Cache.blobs[p.Name]
+	blob, ok := p.cache.blobs[p.name]
 	if !ok {
 		return
 	}
 	blob.Close()
-	delete(p.Cache.blobs, p.Name)
+	delete(p.cache.blobs, p.name)
 }
 
 func (p Blob) GetTag(name string, result func(*sqlite.Stmt)) error {
-	p.Cache.l.Lock()
-	defer p.Cache.l.Unlock()
-	return sqlitex.Exec(p.Cache.conn, "select value from tag where blob_name=? and tag_name=?", func(stmt *sqlite.Stmt) error {
+	p.cache.l.Lock()
+	defer p.cache.l.Unlock()
+	return sqlitex.Exec(p.cache.conn, "select value from tag where blob_name=? and tag_name=?", func(stmt *sqlite.Stmt) error {
 		result(stmt)
 		return nil
-	}, p.Name, name)
+	}, p.name, name)
 }
 
-func (p Blob) getBlob(create bool, clobberLength bool) (*sqlite.Blob, error) {
-	blob, ok := p.Cache.blobs[p.Name]
+func (c *Cache) getBlob(name string, create bool, length int64, clobberLength bool) (*sqlite.Blob, error) {
+	blob, ok := c.blobs[name]
 	if ok {
-		if !clobberLength || p.Length == blob.Size() {
+		if !clobberLength || length == blob.Size() {
 			return blob, nil
 		}
 		blob.Close()
-		delete(p.Cache.blobs, p.Name)
+		delete(c.blobs, name)
 	}
-	rowid, length, ok, err := rowidForBlob(p.Cache.conn, p.Name)
+	rowid, existingLength, ok, err := rowidForBlob(c.conn, name)
 	if err != nil {
 		return nil, fmt.Errorf("getting rowid for blob: %w", err)
 	}
 	if !ok && !create {
 		return nil, fs.ErrNotExist
 	}
-	if !ok || clobberLength && length != p.Length {
-		rowid, err = createBlob(p.Cache.conn, p.Name, p.Length, ok && clobberLength && length != p.Length)
+	if !ok || clobberLength && existingLength != length {
+		rowid, err = createBlob(c.conn, name, length, ok && clobberLength && length != existingLength)
 	}
 	if err != nil {
 		err = fmt.Errorf("creating blob: %w", err)
 		return nil, err
 	}
-	blob, err = p.Cache.conn.OpenBlob("main", "blob", "data", rowid, true)
+	blob, err = c.conn.OpenBlob("main", "blob", "data", rowid, true)
 	if err != nil {
 		panic(err)
 	}
-	if p.Cache.opts.GcBlobs {
+	if c.opts.GcBlobs {
 		herp := new(byte)
 		runtime.SetFinalizer(herp, func(*byte) {
-			p.Cache.l.Lock()
-			defer p.Cache.l.Unlock()
+			c.l.Lock()
+			defer c.l.Unlock()
 			// Note there's no guarantee that the finalizer fired while this blob is the same
 			// one in the blob cache. It might be possible to rework this so that we check, or
 			// strip finalizers as appropriate.
 			blob.Close()
 		})
 	}
-	p.Cache.blobs[p.Name] = blob
+	c.blobs[name] = blob
 	return blob, nil
 }

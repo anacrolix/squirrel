@@ -114,23 +114,46 @@ func (c *Cache) Close() (err error) {
 	return
 }
 
-func (c *Cache) Open(name string) (Blob, error) {
-	b := Blob{
-		Name:  name,
-		Cache: c,
+// Wraps a specific sqlite.Blob instance, when we don't want to dive into the cache to refetch blobs.
+type PinnedBlob struct {
+	sb *sqlite.Blob
+	c  *Cache
+}
+
+// This is very cheap for this type.
+func (pb PinnedBlob) Length() int64 {
+	return pb.sb.Size()
+}
+
+// Requires only that we lock the sqlite conn.
+func (pb PinnedBlob) ReadAt(b []byte, off int64) (int, error) {
+	pb.c.l.Lock()
+	defer pb.c.l.Unlock()
+	return pb.sb.ReadAt(b, off)
+}
+
+// Returns an existing blob only.
+func (c *Cache) Open(name string) (ret PinnedBlob, err error) {
+	ret.c = c
+	c.l.Lock()
+	defer c.l.Unlock()
+	ret.sb, err = c.getBlob(name, false, -1, false)
+	return
+}
+
+func (c *Cache) OpenWithLength(name string, length int64) Blob {
+	return Blob{
+		name:   name,
+		length: length,
+		cache:  c,
 	}
-	err := b.doWithBlob(func(blob *sqlite.Blob) error {
-		b.Length = blob.Size()
-		return nil
-	}, false, false)
-	return b, err
 }
 
 func (c *Cache) Put(name string, b []byte) error {
 	return Blob{
-		Name:   name,
-		Length: int64(len(b)),
-		Cache:  c,
+		name:   name,
+		length: int64(len(b)),
+		cache:  c,
 	}.doWithBlob(func(blob *sqlite.Blob) error {
 		_, err := blob.WriteAt(b, 0)
 		return err
