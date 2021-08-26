@@ -15,13 +15,6 @@ import (
 
 type conn = *sqlite.Conn
 
-type InitConnOpts struct {
-	SetSynchronous int
-	SetJournalMode string
-	MmapSizeOk     bool  // If false, a package-specific default will be used.
-	MmapSize       int64 // If MmapSizeOk is set, use sqlite default if < 0, otherwise this value.
-}
-
 type UnexpectedJournalMode struct {
 	JournalMode string
 }
@@ -145,14 +138,6 @@ func InitSchema(conn conn, pageSize int, triggers bool) error {
 	return nil
 }
 
-type InitDbOpts struct {
-	DontInitSchema bool
-	PageSize       int
-	// If non-zero, overrides the existing setting.
-	Capacity   int64
-	NoTriggers bool
-}
-
 // Remove any capacity limits.
 func unlimitCapacity(conn conn) error {
 	return sqlitex.Exec(conn, "delete from setting where key='capacity'", nil)
@@ -161,17 +146,6 @@ func unlimitCapacity(conn conn) error {
 // Set the capacity limit to exactly this value.
 func setCapacity(conn conn, cap int64) error {
 	return sqlitex.Exec(conn, "insert into setting values ('capacity', ?)", nil, cap)
-}
-
-type NewConnOpts struct {
-	// See https://www.sqlite.org/c3ref/open.html. NB: "If the filename is an empty string, then a
-	// private, temporary on-disk database will be created. This private database will be
-	// automatically deleted as soon as the database connection is closed."
-	Path   string
-	Memory bool
-	// Whether multiple blobs will not be read simultaneously. Enables journal mode other than WAL,
-	// and NumConns < 2.
-	NoConcurrentBlobReads bool
 }
 
 func newOpenUri(opts NewConnOpts) string {
