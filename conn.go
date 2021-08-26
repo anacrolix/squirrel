@@ -15,11 +15,11 @@ import (
 
 type conn = *sqlite.Conn
 
-type UnexpectedJournalMode struct {
+type ErrUnexpectedJournalMode struct {
 	JournalMode string
 }
 
-func (me UnexpectedJournalMode) Error() string {
+func (me ErrUnexpectedJournalMode) Error() string {
 	return fmt.Sprintf("unexpected journal mode: %q", me.JournalMode)
 }
 
@@ -68,7 +68,7 @@ func initConn(conn conn, opts InitConnOpts) (err error) {
 		err = sqlitex.ExecTransient(conn, fmt.Sprintf(`pragma journal_mode=%s`, opts.SetJournalMode), func(stmt *sqlite.Stmt) error {
 			ret := stmt.ColumnText(0)
 			if ret != opts.SetJournalMode {
-				return UnexpectedJournalMode{ret}
+				return ErrUnexpectedJournalMode{ret}
 			}
 			return nil
 		})
