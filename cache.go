@@ -59,12 +59,12 @@ func NewCache(opts NewCacheOpts) (_ *Cache, err error) {
 	return cl, nil
 }
 
-func (cl *Cache) GetCapacity() (ret *int64) {
+func (cl *Cache) GetCapacity() (ret int64, ok bool) {
 	cl.l.Lock()
 	defer cl.l.Unlock()
 	err := sqlitex.Exec(cl.conn, "select value from setting where name='capacity'", func(stmt *sqlite.Stmt) error {
-		ret = new(int64)
-		*ret = stmt.ColumnInt64(0)
+		ok = true
+		ret = stmt.ColumnInt64(0)
 		return nil
 	})
 	if err != nil {
