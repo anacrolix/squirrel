@@ -1,6 +1,3 @@
-//go:build cgo
-// +build cgo
-
 package squirrel
 
 import (
@@ -80,7 +77,7 @@ func initConn(conn conn, opts InitConnOpts) (err error) {
 		// Set the default. Currently it seems the library picks reasonable defaults, especially for
 		// wal.
 		opts.MmapSize = -1
-		//opts.MmapSize = 1 << 24 // 8 MiB
+		// opts.MmapSize = 1 << 24 // 8 MiB
 	}
 	if opts.MmapSize >= 0 {
 		err = sqlitex.ExecTransient(conn, fmt.Sprintf(`pragma mmap_size=%d`, opts.MmapSize), nil)
