@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	qt "github.com/frankban/quicktest"
+	"zombiezen.com/go/sqlite"
 )
 
 func errorIs(target error) func(error) bool {
@@ -27,6 +28,6 @@ func TestBlobWriteOutOfBounds(t *testing.T) {
 	c.Check(n, qt.Equals, 6)
 	n, err = b.WriteAt([]byte("world\n"), 6)
 	c.Check(n, qt.Equals, 0)
-	c.Check(err, qt.ErrorMatches, `.*bound.*\bSQLITE_ERROR`)
+	c.Check(sqlite.ErrCode(err), qt.Equals, sqlite.ResultError)
 	c.Check(cache.Close(), qt.IsNil)
 }

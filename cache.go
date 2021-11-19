@@ -7,8 +7,8 @@ import (
 	"sync"
 	"time"
 
-	"crawshaw.io/sqlite"
-	"crawshaw.io/sqlite/sqlitex"
+	"zombiezen.com/go/sqlite"
+	"zombiezen.com/go/sqlite/sqlitex"
 )
 
 type NewCacheOpts struct {
@@ -129,7 +129,7 @@ func (pb PinnedBlob) Length() int64 {
 func (pb PinnedBlob) ReadAt(b []byte, off int64) (int, error) {
 	pb.c.l.Lock()
 	defer pb.c.l.Unlock()
-	return pb.sb.ReadAt(b, off)
+	return blobReadAt(pb.sb, b, off)
 }
 
 // Returns an existing blob only.
@@ -155,7 +155,7 @@ func (c *Cache) Put(name string, b []byte) error {
 		length: int64(len(b)),
 		cache:  c,
 	}.doWithBlob(func(blob *sqlite.Blob) error {
-		_, err := blob.WriteAt(b, 0)
+		_, err := blobWriteAt(blob, b, 0)
 		return err
 	}, true, true)
 }

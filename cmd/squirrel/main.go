@@ -8,9 +8,9 @@ import (
 	"log"
 	"os"
 
-	"crawshaw.io/sqlite"
 	"github.com/alexflint/go-arg"
 	"github.com/anacrolix/squirrel"
+	"zombiezen.com/go/sqlite"
 )
 
 type InitCommand struct {

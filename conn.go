@@ -9,8 +9,8 @@ import (
 	"fmt"
 	"net/url"
 
-	"crawshaw.io/sqlite"
-	"crawshaw.io/sqlite/sqlitex"
+	"zombiezen.com/go/sqlite"
+	"zombiezen.com/go/sqlite/sqlitex"
 )
 
 type conn = *sqlite.Conn
@@ -177,10 +177,10 @@ func initDatabase(conn conn, opts InitDbOpts) (err error) {
 
 // Go fmt, why you so shit?
 const openConnFlags = 0 |
-	sqlite.SQLITE_OPEN_READWRITE |
-	sqlite.SQLITE_OPEN_CREATE |
-	sqlite.SQLITE_OPEN_URI |
-	sqlite.SQLITE_OPEN_NOMUTEX
+	sqlite.OpenReadWrite |
+	sqlite.OpenCreate |
+	sqlite.OpenURI |
+	sqlite.OpenNoMutex
 
 func newConn(opts NewConnOpts) (conn, error) {
 	return sqlite.OpenConn(newOpenUri(opts), openConnFlags)
