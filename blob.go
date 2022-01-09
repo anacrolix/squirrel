@@ -1,13 +1,13 @@
 package squirrel
 
 import (
-	"errors"
 	"fmt"
 	"io/fs"
 	"runtime"
+	"strings"
 
-	"crawshaw.io/sqlite"
-	"crawshaw.io/sqlite/sqlitex"
+	"zombiezen.com/go/sqlite"
+	"zombiezen.com/go/sqlite/sqlitex"
 )
 
 type Blob struct {
@@ -18,6 +18,12 @@ type Blob struct {
 
 func (p Blob) getBlob(create, clobberLength bool) (*sqlite.Blob, error) {
 	return p.cache.getBlob(p.name, create, p.length, clobberLength)
+}
+
+// In the crawshaw implementation, this was an isolated error message value. In zombiezen, it's
+// produced by errors.New and wrapped. There's no way I know of to isolate it.
+func isErrInvalidBlob(err error) bool {
+	return strings.HasSuffix(err.Error(), "invalid blob")
 }
 
 func (p Blob) doWithBlob(
@@ -39,14 +45,11 @@ func (p Blob) doWithBlob(
 	if err == nil {
 		return
 	}
-	var se sqlite.Error
-	if !errors.As(err, &se) {
-		return
-	}
+	src := sqlite.ErrCode(err)
 	// "ABORT" occurs if the row the blob is on is modified elsewhere. "ERROR: invalid blob" occurs
 	// if the blob has been closed. We don't forget blobs that are closed by our GC finalizers,
 	// because they may be attached to names that have since moved on to another blob.
-	if se.Code != sqlite.SQLITE_ABORT && !(p.cache.opts.GcBlobs && se.Code == sqlite.SQLITE_ERROR && se.Msg == "invalid blob") {
+	if src != sqlite.ResultAbort && !(p.cache.opts.GcBlobs && src == sqlite.ResultError && isErrInvalidBlob(err)) {
 		return
 	}
 	p.forgetBlob()
@@ -62,7 +65,7 @@ func (p Blob) doWithBlob(
 
 func (p Blob) ReadAt(b []byte, off int64) (n int, err error) {
 	err = p.doWithBlob(func(blob *sqlite.Blob) (err error) {
-		n, err = blob.ReadAt(b, off)
+		n, err = blobReadAt(blob, b, off)
 		return
 	}, false, false)
 	return
@@ -70,11 +73,7 @@ func (p Blob) ReadAt(b []byte, off int64) (n int, err error) {
 
 func (p Blob) WriteAt(b []byte, off int64) (n int, err error) {
 	err = p.doWithBlob(func(blob *sqlite.Blob) (err error) {
-		n, err = blob.WriteAt(b, off)
-		var se sqlite.Error
-		if errors.As(err, &se) && se.Code == sqlite.SQLITE_ERROR && off+int64(len(b)) > blob.Size() {
-			err = fmt.Errorf("write would be out of bounds: %w", err)
-		}
+		n, err = blobWriteAt(blob, b, off)
 		return
 	}, true, false)
 	return
