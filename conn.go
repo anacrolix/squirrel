@@ -136,7 +136,7 @@ func InitSchema(conn conn, pageSize int, triggers bool) error {
 	if triggers {
 		err := sqlitex.ExecScript(conn, initTriggers)
 		if err != nil {
-			return err
+			return fmt.Errorf("initing triggers: %w", err)
 		}
 	}
 	return nil

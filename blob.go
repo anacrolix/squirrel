@@ -127,7 +127,7 @@ func (c *Cache) getBlob(name string, create bool, length int64, clobberLength bo
 		err = fmt.Errorf("creating blob: %w", err)
 		return nil, err
 	}
-	blob, err = c.conn.OpenBlob("main", "blob", "data", rowid, true)
+	blob, err = c.conn.OpenBlob("main", "blob_data", "data", rowid, true)
 	if err != nil {
 		panic(err)
 	}
@@ -144,4 +144,12 @@ func (c *Cache) getBlob(name string, create bool, length int64, clobberLength bo
 	}
 	c.blobs[name] = blob
 	return blob, nil
+}
+
+func (b Blob) Delete() {
+	b.cache.l.Lock()
+	defer b.cache.l.Unlock()
+	sqlitex.Execute(b.cache.conn, "delete from blob where name=?", &sqlitex.ExecOptions{
+		Args: []interface{}{b.name},
+	})
 }
