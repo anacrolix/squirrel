@@ -74,9 +74,9 @@ func TestConcurrentCreateBlob(t *testing.T) {
 	tempDir, _ := os.MkdirTemp("", "")
 	opts.Path = filepath.Join(tempDir, "db")
 	opts.Capacity = -1
-	opts.NoCacheBlobs = true
-	opts.SetSynchronous = 1
-	opts.PageSize = 4096
+	// opts.NoCacheBlobs = true
+	// opts.SetSynchronous = 1
+	// opts.PageSize = 4096
 	t.Logf("shared path: %q", opts.Path)
 	opts.SetJournalMode = "wal"
 	var eg errgroup.Group

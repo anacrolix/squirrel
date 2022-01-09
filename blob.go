@@ -33,7 +33,7 @@ func (p Blob) doWithBlob(
 ) (err error) {
 	p.cache.l.Lock()
 	defer p.cache.l.Unlock()
-	if true {
+	if false {
 		if true {
 			end, myErr := sqlitex.ImmediateTransaction(p.cache.conn)
 			if myErr != nil {
