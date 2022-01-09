@@ -138,12 +138,18 @@ func (c *Cache) Open(name string) (ret PinnedBlob, err error) {
 	return
 }
 
-func (c *Cache) OpenWithLength(name string, length int64) Blob {
+// Defines a Blob with the given name and length. Nothing is actually written or checked in the DB.
+func (c *Cache) BlobWithLength(name string, length int64) Blob {
 	return Blob{
 		name:   name,
 		length: length,
 		cache:  c,
 	}
+}
+
+// Deprecated. Use BlobWithLength.
+func (c *Cache) OpenWithLength(name string, length int64) Blob {
+	return c.BlobWithLength(name, length)
 }
 
 func (c *Cache) Put(name string, b []byte) error {

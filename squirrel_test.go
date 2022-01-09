@@ -22,7 +22,7 @@ func TestBlobWriteOutOfBounds(t *testing.T) {
 	defer cache.Close()
 	_, err = cache.Open("greeting")
 	c.Check(err, qt.Satisfies, errorIs(fs.ErrNotExist))
-	b := cache.OpenWithLength("greeting", 6)
+	b := cache.BlobWithLength("greeting", 6)
 	n, err := b.WriteAt([]byte("hello "), 0)
 	c.Assert(err, qt.IsNil)
 	c.Check(n, qt.Equals, 6)
