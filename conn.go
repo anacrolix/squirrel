@@ -137,7 +137,7 @@ func InitSchema(conn conn, pageSize int, triggers bool) error {
 
 // Remove any capacity limits.
 func unlimitCapacity(conn conn) error {
-	return sqlitex.Exec(conn, "delete from setting where key='capacity'", nil)
+	return sqlitex.Exec(conn, "delete from setting where name='capacity'", nil)
 }
 
 // Set the capacity limit to exactly this value.
