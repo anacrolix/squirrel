@@ -46,7 +46,7 @@ func setSynchronous(conn conn, syncInt int) (err error) {
 	return nil
 }
 
-func initConn(conn conn, opts InitConnOpts) (err error) {
+func initConn(conn conn, opts InitConnOpts, pageSize int) (err error) {
 	err = sqlitex.ExecTransient(conn, "pragma foreign_keys=on", nil)
 	if err != nil {
 		return err
@@ -60,6 +60,13 @@ func initConn(conn conn, opts InitConnOpts) (err error) {
 	err = sqlitex.ExecTransient(conn, "pragma recursive_triggers=on", nil)
 	if err != nil {
 		return err
+	}
+	// For some reason it's faster to set page size after synchronous. We need to set it before
+	// setting journal mode in case it's WAL.
+	err = setPageSize(conn, pageSize)
+	if err != nil {
+		err = fmt.Errorf("setting page size: %w", err)
+		return
 	}
 	if opts.SetJournalMode != "" {
 		err = sqlitex.ExecTransient(conn, fmt.Sprintf(`pragma journal_mode=%s`, opts.SetJournalMode), func(stmt *sqlite.Stmt) error {

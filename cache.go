@@ -27,12 +27,12 @@ func NewCache(opts NewCacheOpts) (_ *Cache, err error) {
 		// can expect, which is probably 1<<17.
 		opts.PageSize = 1 << 16
 	}
-	err = initDatabase(conn, opts.InitDbOpts)
+	err = initConn(conn, opts.InitConnOpts, opts.PageSize)
 	if err != nil {
 		conn.Close()
 		return
 	}
-	err = initConn(conn, opts.InitConnOpts)
+	err = initDatabase(conn, opts.InitDbOpts)
 	if err != nil {
 		conn.Close()
 		return
