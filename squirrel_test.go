@@ -13,6 +13,7 @@ import (
 	qt "github.com/frankban/quicktest"
 	"golang.org/x/sync/errgroup"
 	"zombiezen.com/go/sqlite"
+	"zombiezen.com/go/sqlite/sqlitex"
 )
 
 func init() {
@@ -108,4 +109,13 @@ func TestConcurrentCreateBlob(t *testing.T) {
 	b, err := io.ReadAll(pb)
 	c.Check(err, qt.IsNil)
 	c.Check(allValues, qt.Contains, string(b))
+	conn, err := newConn(opts.NewConnOpts)
+	c.Assert(err, qt.IsNil)
+	defer conn.Close()
+	var count setOnce[int64]
+	c.Assert(sqlitex.Exec(conn, "select count(*) from blob_data", func(stmt *sqlite.Stmt) error {
+		count.Set(stmt.ColumnInt64(0))
+		return nil
+	}), qt.IsNil)
+	c.Check(count.Value(), qt.Equals, int64(1))
 }

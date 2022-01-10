@@ -17,3 +17,9 @@ after delete on blob_data
 begin
     update blob_meta set value=value-length(old.data) where key='size';
 end;
+
+create trigger if not exists delete_blob_data_on_blob_delete
+after delete on blob
+begin
+    delete from blob_data where data_id=old.data_id;
+end;
