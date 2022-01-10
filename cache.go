@@ -116,7 +116,7 @@ func (c *Cache) Open(name string) (ret PinnedBlob, err error) {
 	ret.c = c
 	c.l.Lock()
 	defer c.l.Unlock()
-	ret.sb, err = c.getBlob(name, false, -1, false)
+	ret.Blob, err = c.getBlob(name, false, -1, false)
 	return
 }
 
@@ -141,6 +141,7 @@ func (c *Cache) Put(name string, b []byte) error {
 		cache:  c,
 	}.doWithBlob(func(blob *sqlite.Blob) error {
 		_, err := blobWriteAt(blob, b, 0)
+		// log.Printf("wrote %v bytes", n)
 		return err
 	}, true, true)
 }

@@ -179,7 +179,7 @@ func initDatabase(conn conn, opts InitDbOpts) (err error) {
 	return
 }
 
-// Go fmt, why you so shit?
+// Go fmt, why you so shit? We specifically don't open with WAL.
 const openConnFlags = 0 |
 	sqlite.OpenReadWrite |
 	sqlite.OpenCreate |

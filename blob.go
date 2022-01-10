@@ -33,16 +33,42 @@ func (p Blob) doWithBlob(
 ) (err error) {
 	p.cache.l.Lock()
 	defer p.cache.l.Unlock()
+	if true {
+		if true {
+			end, myErr := sqlitex.ImmediateTransaction(p.cache.conn)
+			if myErr != nil {
+				return fmt.Errorf("starting immediate transaction: %w", myErr)
+			}
+			defer end(&err)
+		} else {
+			err = sqlitex.Execute(p.cache.conn, "begin immediate", nil)
+			if err != nil {
+				err = fmt.Errorf("starting transaction: %w", err)
+				return
+			}
+			defer func() {
+				query := "end"
+				if err != nil {
+					query = "rollback"
+				}
+				endErr := sqlitex.Execute(p.cache.conn, query, nil)
+				if endErr != nil {
+					panic(endErr)
+				}
+			}()
+		}
+	}
 	if p.cache.opts.NoCacheBlobs {
 		defer p.forgetBlob()
 	}
+	// log.Printf("getting blob")
 	blob, err := p.getBlob(create, clobberLength)
 	if err != nil {
 		err = fmt.Errorf("getting sqlite blob: %w", err)
 		return
 	}
 	err = withBlob(blob)
-	if err == nil {
+	if err == nil || p.cache.opts.NoCacheBlobs {
 		return
 	}
 	src := sqlite.ErrCode(err)
@@ -104,7 +130,7 @@ func (p Blob) GetTag(name string, result func(*sqlite.Stmt)) error {
 	}, p.name, name)
 }
 
-func (c *Cache) getBlob(name string, create bool, length int64, clobberLength bool) (*sqlite.Blob, error) {
+func (c *Cache) getBlob(name string, create bool, length int64, clobberLength bool) (_ *sqlite.Blob, err error) {
 	blob, ok := c.blobs[name]
 	if ok {
 		if !clobberLength || length == blob.Size() {
@@ -114,18 +140,19 @@ func (c *Cache) getBlob(name string, create bool, length int64, clobberLength bo
 		delete(c.blobs, name)
 	}
 	rowid, existingLength, ok, err := rowidForBlob(c.conn, name)
+	// log.Printf("got rowid %v, existing length %v, ok %v", rowid, existingLength, ok)
 	if err != nil {
 		return nil, fmt.Errorf("getting rowid for blob: %w", err)
 	}
 	if !ok && !create {
 		return nil, fs.ErrNotExist
 	}
-	if !ok || clobberLength && existingLength != length {
+	if !ok || (clobberLength && existingLength != length) {
 		rowid, err = createBlob(c.conn, name, length, ok && clobberLength && length != existingLength)
-	}
-	if err != nil {
-		err = fmt.Errorf("creating blob: %w", err)
-		return nil, err
+		if err != nil {
+			err = fmt.Errorf("creating blob: %w", err)
+			return nil, err
+		}
 	}
 	blob, err = c.conn.OpenBlob("main", "blob_data", "data", rowid, true)
 	if err != nil {

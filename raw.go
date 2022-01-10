@@ -12,14 +12,15 @@ func createBlob(c conn, name string, length int64, clobber bool) (rowid int64, e
 	// 	return
 	// }
 	// defer end(&err)
-	sqlitex.Exec(c, "begin", nil)
-	defer func() {
-		if err != nil {
-			sqlitex.Exec(c, "rollback", nil)
-		} else {
-			sqlitex.Exec(c, "end", nil)
-		}
-	}()
+	// sqlitex.Exec(c, "begin", nil)
+	// defer func() {
+	// 	if err != nil {
+	// 		sqlitex.Exec(c, "rollback", nil)
+	// 	} else {
+	// 		sqlitex.Exec(c, "end", nil)
+	// 	}
+	// }()
+	// defer sqlitex.Transaction(c)(&err)
 	if clobber {
 		var dataId setOnce[int64]
 		err = sqlitex.Exec(c, "select data_id from blob where name=?", func(stmt *sqlite.Stmt) error {
@@ -30,8 +31,9 @@ func createBlob(c conn, name string, length int64, clobber bool) (rowid int64, e
 			return
 		}
 		if dataId.Ok() {
+			// log.Printf("clobbering %q to length %v", name, length)
 			err = sqlitex.Execute(c, `
-				replace into blob_data(data, data_id) values(zeroblob(?), ?)`,
+				update blob_data set data=zeroblob(?) where data_id=?`,
 				&sqlitex.ExecOptions{
 					Args: []interface{}{length, dataId.Value()},
 				})
@@ -52,14 +54,17 @@ func createBlob(c conn, name string, length int64, clobber bool) (rowid int64, e
 		return
 	}
 	rowid = c.LastInsertRowID()
-	err = sqlitex.Execute(c, "insert into blob(name, data_id) values (?, ?)", &sqlitex.ExecOptions{
+	if rowid == 0 {
+		panic(rowid)
+	}
+	err = sqlitex.Execute(c, "insert or replace into blob(name, data_id) values (?, ?)", &sqlitex.ExecOptions{
 		Args: []interface{}{name, rowid},
 	})
 	return
 }
 
 func rowidForBlob(c conn, name string) (rowid int64, length int64, ok bool, err error) {
-	err = sqlitex.Exec(c, "select data_id, length(data) from blob join blob_data using (data_id) where name=?", func(stmt *sqlite.Stmt) error {
+	err = sqlitex.Exec(c, "select data_id, length(cast(data as blob)) from blob join blob_data using (data_id) where name=?", func(stmt *sqlite.Stmt) error {
 		if ok {
 			panic("expected at most one row")
 		}
