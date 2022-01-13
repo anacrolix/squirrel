@@ -20,6 +20,9 @@ func blobReadAt(blob *sqlite.Blob, b []byte, off int64) (n int, err error) {
 		return
 	}
 	n, err = blob.Read(b)
+	if err != nil {
+		return
+	}
 	finalOff, err := blob.Seek(origOff, io.SeekStart)
 	if err != nil {
 		err = fmt.Errorf("seeking to original offset: %w", err)
