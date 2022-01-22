@@ -1,11 +1,14 @@
+//go:build cgo
+// +build cgo
+
 package squirrel
 
 import (
 	"sync"
 	"time"
 
-	"zombiezen.com/go/sqlite"
-	"zombiezen.com/go/sqlite/sqlitex"
+	"crawshaw.io/sqlite"
+	"crawshaw.io/sqlite/sqlitex"
 )
 
 type NewCacheOpts struct {
@@ -126,7 +129,7 @@ func (pb PinnedBlob) Length() int64 {
 func (pb PinnedBlob) ReadAt(b []byte, off int64) (int, error) {
 	pb.c.l.Lock()
 	defer pb.c.l.Unlock()
-	return blobReadAt(pb.sb, b, off)
+	return pb.sb.ReadAt(b, off)
 }
 
 // Returns an existing blob only.
@@ -158,7 +161,7 @@ func (c *Cache) Put(name string, b []byte) error {
 		length: int64(len(b)),
 		cache:  c,
 	}.doWithBlob(func(blob *sqlite.Blob) error {
-		_, err := blobWriteAt(blob, b, 0)
+		_, err := blob.WriteAt(b, 0)
 		return err
 	}, true, true)
 }
