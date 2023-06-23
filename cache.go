@@ -1,6 +1,7 @@
 package squirrel
 
 import (
+	"errors"
 	"sync"
 	"time"
 
@@ -77,6 +78,13 @@ type Cache struct {
 	blobFlusher *time.Timer
 	opts        NewCacheOpts
 	closed      bool
+}
+
+func (c *Cache) getCacheErr() error {
+	if c.closed {
+		return errors.New("cache closed")
+	}
+	return nil
 }
 
 func (c *Cache) blobFlusherFunc() {

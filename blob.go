@@ -80,9 +80,13 @@ func (p Blob) WriteAt(b []byte, off int64) (n int, err error) {
 	return
 }
 
-func (p Blob) SetTag(name string, value interface{}) error {
+func (p Blob) SetTag(name string, value interface{}) (err error) {
 	p.cache.l.Lock()
 	defer p.cache.l.Unlock()
+	err = p.cache.getCacheErr()
+	if err != nil {
+		return
+	}
 	return sqlitex.Exec(p.cache.conn, "insert or replace into tag (blob_name, tag_name, value) values (?, ?, ?)", nil,
 		p.name, name, value)
 }
@@ -98,9 +102,13 @@ func (p Blob) forgetBlob() {
 
 type SqliteStmt = *sqlite.Stmt
 
-func (p Blob) GetTag(name string, result func(stmt SqliteStmt)) error {
+func (p Blob) GetTag(name string, result func(stmt SqliteStmt)) (err error) {
 	p.cache.l.Lock()
 	defer p.cache.l.Unlock()
+	err = p.cache.getCacheErr()
+	if err != nil {
+		return
+	}
 	return sqlitex.Exec(p.cache.conn, "select value from tag where blob_name=? and tag_name=?", func(stmt *sqlite.Stmt) error {
 		result(stmt)
 		return nil
