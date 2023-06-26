@@ -63,6 +63,9 @@ func NewCache(opts NewCacheOpts) (_ *Cache, err error) {
 func (cl *Cache) GetCapacity() (ret int64, ok bool) {
 	cl.l.Lock()
 	defer cl.l.Unlock()
+	if cl.getCacheErr() != nil {
+		return
+	}
 	err := sqlitex.Exec(cl.conn, "select value from setting where name='capacity'", func(stmt *sqlite.Stmt) error {
 		ok = true
 		ret = stmt.ColumnInt64(0)
@@ -145,6 +148,10 @@ func (c *Cache) Open(name string) (ret PinnedBlob, err error) {
 	ret.c = c
 	c.l.Lock()
 	defer c.l.Unlock()
+	err = c.getCacheErr()
+	if err != nil {
+		return
+	}
 	ret.sb, err = c.getBlob(name, false, -1, false)
 	return
 }

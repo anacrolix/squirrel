@@ -27,6 +27,10 @@ func (p Blob) doWithBlob(
 ) (err error) {
 	p.cache.l.Lock()
 	defer p.cache.l.Unlock()
+	err = p.cache.getCacheErr()
+	if err != nil {
+		return
+	}
 	if p.cache.opts.NoCacheBlobs {
 		defer p.forgetBlob()
 	}
