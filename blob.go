@@ -104,7 +104,9 @@ func (p Blob) forgetBlob() {
 	delete(p.cache.blobs, p.name)
 }
 
-func (p Blob) GetTag(name string, result func(*sqlite.Stmt)) (err error) {
+type SqliteStmt = *sqlite.Stmt
+
+func (p Blob) GetTag(name string, result func(stmt SqliteStmt)) (err error) {
 	p.cache.l.Lock()
 	defer p.cache.l.Unlock()
 	err = p.cache.getCacheErr()
