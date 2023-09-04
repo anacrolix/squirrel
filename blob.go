@@ -96,7 +96,9 @@ func (p Blob) forgetBlob() {
 	delete(p.cache.blobs, p.name)
 }
 
-func (p Blob) GetTag(name string, result func(*sqlite.Stmt)) error {
+type SqliteStmt = *sqlite.Stmt
+
+func (p Blob) GetTag(name string, result func(stmt SqliteStmt)) error {
 	p.cache.l.Lock()
 	defer p.cache.l.Unlock()
 	return sqlitex.Exec(p.cache.conn, "select value from tag where blob_name=? and tag_name=?", func(stmt *sqlite.Stmt) error {
