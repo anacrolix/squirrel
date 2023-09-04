@@ -8,7 +8,7 @@ import (
 	"log"
 	"os"
 
-	"crawshaw.io/sqlite"
+	"github.com/go-llsqlite/adapter"
 	"github.com/alexflint/go-arg"
 	"github.com/anacrolix/squirrel"
 )

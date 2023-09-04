@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
-	"crawshaw.io/sqlite"
-	"crawshaw.io/sqlite/sqlitex"
+	"github.com/go-llsqlite/adapter"
+	"github.com/go-llsqlite/adapter/sqlitex"
 )
 
 type NewCacheOpts struct {
