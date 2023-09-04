@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"net/url"
 
-	"zombiezen.com/go/sqlite"
-	"zombiezen.com/go/sqlite/sqlitex"
+	"github.com/go-llsqlite/adapter"
+	"github.com/go-llsqlite/adapter/sqlitex"
 )
 
 type conn = *sqlite.Conn

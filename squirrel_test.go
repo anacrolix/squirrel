@@ -11,9 +11,9 @@ import (
 
 	_ "github.com/anacrolix/envpprof"
 	qt "github.com/frankban/quicktest"
+	sqlite "github.com/go-llsqlite/adapter"
+	"github.com/go-llsqlite/adapter/sqlitex"
 	"golang.org/x/sync/errgroup"
-	"zombiezen.com/go/sqlite"
-	"zombiezen.com/go/sqlite/sqlitex"
 )
 
 func init() {
@@ -37,7 +37,7 @@ func TestBlobWriteOutOfBounds(t *testing.T) {
 	c.Check(n, qt.Equals, 6)
 	n, err = b.WriteAt([]byte("world\n"), 6)
 	c.Check(n, qt.Equals, 0)
-	c.Check(sqlite.ErrCode(err), qt.Equals, sqlite.ResultError)
+	c.Check(sqlite.ErrCode(err), qt.Equals, sqlite.ResultCodeGenericError)
 	c.Check(cache.Close(), qt.IsNil)
 }
 

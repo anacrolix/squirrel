@@ -6,8 +6,8 @@ import (
 	"runtime"
 	"strings"
 
-	"zombiezen.com/go/sqlite"
-	"zombiezen.com/go/sqlite/sqlitex"
+	sqlite "github.com/go-llsqlite/adapter"
+	"github.com/go-llsqlite/adapter/sqlitex"
 )
 
 type Blob struct {
@@ -33,31 +33,6 @@ func (p Blob) doWithBlob(
 ) (err error) {
 	p.cache.l.Lock()
 	defer p.cache.l.Unlock()
-	if false {
-		if true {
-			end, myErr := sqlitex.ImmediateTransaction(p.cache.conn)
-			if myErr != nil {
-				return fmt.Errorf("starting immediate transaction: %w", myErr)
-			}
-			defer end(&err)
-		} else {
-			err = sqlitex.Execute(p.cache.conn, "begin immediate", nil)
-			if err != nil {
-				err = fmt.Errorf("starting transaction: %w", err)
-				return
-			}
-			defer func() {
-				query := "end"
-				if err != nil {
-					query = "rollback"
-				}
-				endErr := sqlitex.Execute(p.cache.conn, query, nil)
-				if endErr != nil {
-					panic(endErr)
-				}
-			}()
-		}
-	}
 	if p.cache.opts.NoCacheBlobs {
 		defer p.forgetBlob()
 	}
@@ -75,7 +50,7 @@ func (p Blob) doWithBlob(
 	// "ABORT" occurs if the row the blob is on is modified elsewhere. "ERROR: invalid blob" occurs
 	// if the blob has been closed. We don't forget blobs that are closed by our GC finalizers,
 	// because they may be attached to names that have since moved on to another blob.
-	if src != sqlite.ResultAbort && !(p.cache.opts.GcBlobs && src == sqlite.ResultError && isErrInvalidBlob(err)) {
+	if src != sqlite.ResultCodeAbort && !(p.cache.opts.GcBlobs && src == sqlite.ResultCodeGenericError && isErrInvalidBlob(err)) {
 		return
 	}
 	p.forgetBlob()

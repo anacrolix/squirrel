@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"io"
 
-	"zombiezen.com/go/sqlite"
+	"github.com/go-llsqlite/adapter"
 )
 
 // Blob API differs between crawshaw and zombiezen.

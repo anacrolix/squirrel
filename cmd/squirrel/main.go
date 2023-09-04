@@ -7,7 +7,7 @@ import (
 
 	"github.com/alexflint/go-arg"
 	"github.com/anacrolix/squirrel"
-	"zombiezen.com/go/sqlite"
+	"github.com/go-llsqlite/adapter"
 )
 
 type InitCommand struct {

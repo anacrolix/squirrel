@@ -1,6 +1,6 @@
 package squirrel
 
-import "zombiezen.com/go/sqlite"
+import "github.com/go-llsqlite/adapter"
 
 // Wraps a specific sqlite.Blob instance, when we don't want to dive into the cache to refetch blobs.
 type PinnedBlob struct {

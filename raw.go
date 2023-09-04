@@ -1,8 +1,8 @@
 package squirrel
 
 import (
-	"zombiezen.com/go/sqlite"
-	"zombiezen.com/go/sqlite/sqlitex"
+	"github.com/go-llsqlite/adapter"
+	"github.com/go-llsqlite/adapter/sqlitex"
 )
 
 func createBlob(c conn, name string, length int64, clobber bool) (rowid int64, err error) {
