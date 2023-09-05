@@ -14,8 +14,8 @@ github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSs
 github.com/dustin/go-humanize v1.0.0/go.mod h1:HtrtbFcZ19U5GC7JDqmcUSB87Iq5E25KnS6fMYU6eOk=
 github.com/frankban/quicktest v1.13.1 h1:xVm/f9seEhZFL9+n5kv5XLrGwy6elc4V9v/XFY2vmd8=
 github.com/frankban/quicktest v1.13.1/go.mod h1:NeW+ay9A/U67EYXNFA1nPE8e/tnQv/09mUdL/ijj8og=
-github.com/go-llsqlite/adapter v0.0.0-20230904114519-76088451d39b h1:wbfeKdflNVjNYdl0aXOvXWzZ/XbBUgENMX2PZmfRyrY=
-github.com/go-llsqlite/adapter v0.0.0-20230904114519-76088451d39b/go.mod h1:5u4swopWitCyQhA5ydChFSYOGbuIdttwlco+3WgFYoQ=
+github.com/go-llsqlite/adapter v0.0.0-20230905083127-a7568332b3ac h1:JYM7DEMD5W+pVLmyFGY0h/TCQmiZ41hDC7DhPyJQFg8=
+github.com/go-llsqlite/adapter v0.0.0-20230905083127-a7568332b3ac/go.mod h1:kyfY1RB62UhX0Cyh902kGhiHVz9+I+i0G6tLAH4DHuw=
 github.com/go-llsqlite/crawshaw v0.0.0-20230904103556-219a9360a2c0 h1:gBgO8x7vT06pP8D3v/IQ38mBnITO8lUDQyTq9nilUaI=
 github.com/go-llsqlite/crawshaw v0.0.0-20230904103556-219a9360a2c0/go.mod h1:Hw0HOqxPMRCkOI87dESIgpdJrRR43OwYN0tbEFyG4OQ=
 github.com/google/go-cmp v0.5.3/go.mod h1:v8dTdLbMG2kIc/vJvl+f65V22dbkXbowE6jgT/gNBxE=
