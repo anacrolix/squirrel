@@ -16,6 +16,7 @@ type NewCacheOpts struct {
 	GcBlobs           bool
 	NoCacheBlobs      bool
 	BlobFlushInterval time.Duration
+	NoFlushBlobs      bool
 }
 
 func NewCache(opts NewCacheOpts) (_ *Cache, err error) {
@@ -38,7 +39,7 @@ func NewCache(opts NewCacheOpts) (_ *Cache, err error) {
 		conn.Close()
 		return
 	}
-	if opts.BlobFlushInterval == 0 && !opts.GcBlobs {
+	if opts.BlobFlushInterval == 0 {
 		// This is influenced by typical busy timeouts, of 5-10s. We want to give other connections
 		// a few chances at getting a transaction through.
 		opts.BlobFlushInterval = time.Second
@@ -51,7 +52,7 @@ func NewCache(opts NewCacheOpts) (_ *Cache, err error) {
 	// Avoid race with cl.blobFlusherFunc
 	cl.l.Lock()
 	defer cl.l.Unlock()
-	if opts.BlobFlushInterval != 0 {
+	if !opts.NoFlushBlobs && !opts.GcBlobs {
 		cl.blobFlusher = time.AfterFunc(opts.BlobFlushInterval, cl.blobFlusherFunc)
 	}
 	return cl, nil
@@ -83,6 +84,10 @@ type Cache struct {
 	closed      bool
 }
 
+func (c *Cache) reclaimsBlobs() bool {
+	return !c.opts.NoCacheBlobs
+}
+
 func (c *Cache) getCacheErr() error {
 	if c.closed {
 		return errors.New("cache closed")
@@ -111,7 +116,7 @@ func (c *Cache) Close() (err error) {
 	c.l.Lock()
 	defer c.l.Unlock()
 	c.flushBlobs()
-	if c.opts.BlobFlushInterval != 0 {
+	if c.blobFlusher != nil {
 		c.blobFlusher.Stop()
 	}
 	if !c.closed {
@@ -124,6 +129,16 @@ func (c *Cache) Close() (err error) {
 
 // Returns an existing blob only.
 func (c *Cache) Open(name string) (ret PinnedBlob, err error) {
+	if !c.reclaimsBlobs() {
+		err = errors.New("you must call OpenPinned if blob caching is disabled")
+		return
+	}
+	return c.OpenPinned(name)
+}
+
+// Returns a PinnedBlob. The item must already exist. You must call PinnedBlob.Release when done
+// with it.
+func (c *Cache) OpenPinned(name string) (ret PinnedBlob, err error) {
 	ret.c = c
 	c.l.Lock()
 	defer c.l.Unlock()
@@ -131,7 +146,7 @@ func (c *Cache) Open(name string) (ret PinnedBlob, err error) {
 	if err != nil {
 		return
 	}
-	ret.Blob, err = c.getBlob(name, false, -1, false)
+	ret.blob, err = c.getBlob(name, false, -1, false)
 	return
 }
 
@@ -159,4 +174,47 @@ func (c *Cache) Put(name string, b []byte) error {
 		// log.Printf("wrote %v bytes", n)
 		return err
 	}, true, true)
+}
+
+var ErrNotFound = errors.New("not found")
+
+func (c *Cache) ReadFull(key string, b []byte) (n int, err error) {
+	c.l.Lock()
+	defer c.l.Unlock()
+	ok := false
+	err = sqlitex.Exec(
+		c.conn,
+		`select data from blob join blob_data using (data_id) where name=?`,
+		func(stmt *sqlite.Stmt) error {
+			if ok {
+				panic("duplicate rows for key")
+			}
+			colBytes := stmt.ColumnViewBytes(0)
+			n = copy(b, colBytes)
+			ok = true
+			return nil
+		},
+		key,
+	)
+	if err != nil {
+		return
+	}
+	if !ok {
+		err = ErrNotFound
+	}
+	return
+}
+
+func (c *Cache) Tx(f func() bool) (err error) {
+	err = sqlitex.Exec(c.conn, "begin immediate", nil)
+	if err != nil {
+		return
+	}
+	commit := f()
+	if commit {
+		err = sqlitex.Exec(c.conn, "commit", nil)
+	} else {
+		err = sqlitex.Exec(c.conn, "rollback", nil)
+	}
+	return
 }

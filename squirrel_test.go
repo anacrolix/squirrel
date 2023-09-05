@@ -106,7 +106,7 @@ func TestConcurrentCreateBlob(t *testing.T) {
 	cache := newCache(c, opts)
 	pb, err := cache.Open("greeting")
 	c.Assert(err, qt.IsNil)
-	b, err := io.ReadAll(pb)
+	b, err := io.ReadAll(io.NewSectionReader(pb, 0, pb.Length()))
 	c.Check(err, qt.IsNil)
 	c.Check(allValues, qt.Contains, string(b))
 	conn, err := newConn(opts.NewConnOpts)

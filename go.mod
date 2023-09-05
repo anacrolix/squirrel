@@ -8,7 +8,7 @@ require (
 	github.com/alexflint/go-arg v1.4.2
 	github.com/anacrolix/envpprof v1.1.1
 	github.com/frankban/quicktest v1.13.1
-	github.com/go-llsqlite/adapter v0.0.0-20230904104726-78c4e98af628
+	github.com/go-llsqlite/adapter v0.0.0-20230904114519-76088451d39b
 	golang.org/x/sync v0.0.0-20210220032951-036812b2e83c
 )
 

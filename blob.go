@@ -1,6 +1,7 @@
 package squirrel
 
 import (
+	"errors"
 	"fmt"
 	"io/fs"
 	"runtime"
@@ -37,7 +38,7 @@ func (p Blob) doWithBlob(
 	if err != nil {
 		return
 	}
-	if p.cache.opts.NoCacheBlobs {
+	if !p.cache.opts.NoCacheBlobs {
 		defer p.forgetBlob()
 	}
 	// log.Printf("getting blob")
@@ -47,7 +48,10 @@ func (p Blob) doWithBlob(
 		return
 	}
 	err = withBlob(blob)
-	if err == nil || p.cache.opts.NoCacheBlobs {
+	if p.cache.opts.NoCacheBlobs {
+		return errors.Join(err, blob.Close())
+	}
+	if err == nil {
 		return
 	}
 	src := sqlite.ErrCode(err)
@@ -158,7 +162,9 @@ func (c *Cache) getBlob(name string, create bool, length int64, clobberLength bo
 			blob.Close()
 		})
 	}
-	c.blobs[name] = blob
+	if !c.opts.NoCacheBlobs {
+		c.blobs[name] = blob
+	}
 	return blob, nil
 }
 
