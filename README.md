@@ -37,4 +37,14 @@ Benchmarks are from use in [anacrolix/torrent]:
  * Update times on read, amortize costs by batching updates and flush before executing cache trimming.
  * Separate Cache and Conn types? This might allow opening extra conns while other writes are ongoing. It's unclear if there's any performance gain to be had since this was tried with the "provider" connection-pool implementations in anacrolix/torrent previously. It might also not play well with tracking blob usage timestamps.
 
+ ## Ideas
+
+ * Look into compile time option SQLITE_DIRECT_OVERFLOW_READ.
+ * Avoid using incremental blob I/O for full writes.
+ * Put value blobs in a separate table.
+ * Use ints or floats for access times.
+ * Add/support expiries.
+ * Use auto vacuum and pragma page_count.
+ * Add transaction support.
+
 [anacrolix/torrent]: (https://github.com/anacrolix/torrent)
