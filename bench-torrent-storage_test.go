@@ -29,19 +29,28 @@ func BenchmarkRandRead(b *testing.B) {
 	}
 }
 
+func BenchmarkRandReadSparse(b *testing.B) {
+	var piece [defaultPieceSize]byte
+	b.SetBytes(defaultPieceSize)
+	for i := 0; i < b.N; i++ {
+		readRandSparse(piece[:])
+	}
+}
+
 var newHash = crc32.NewIEEE
 
 func BenchmarkTorrentStorage(b *testing.B) {
 	c := qt.New(b)
 	cacheOpts := defaultCacheOpts(c)
 	// Can't start a transaction while blobs are cached.
-	//cacheOpts.NoCacheBlobs = true
+	cacheOpts.NoCacheBlobs = true
 	cacheOpts.SetJournalMode = "wal"
 	cacheOpts.Path = newCachePath(c, "testdbs")
-	cacheOpts.MmapSize = 16 << 20
+	cacheOpts.MmapSize = 64 << 20
 	cacheOpts.MmapSizeOk = true
-	cacheOpts.Capacity = 256 << 20
-	//cacheOpts.SetLockingMode = "exclusive"
+	//cacheOpts.Capacity = 64 << 20
+	cacheOpts.SetLockingMode = "exclusive"
+	cacheOpts.NoTriggers = true
 	b.Logf("db path: %q", cacheOpts.Path)
 	const pieceSize = 2 << 20
 	b.SetBytes(pieceSize)
@@ -56,7 +65,7 @@ func BenchmarkTorrentStorage(b *testing.B) {
 			var key [24]byte
 			readRand(key[:20])
 			var piece [2 << 20]byte
-			readRand(piece[:])
+			readRandSparse(piece[:])
 			h0 := newHash()
 			h0.Write(piece[:])
 			const chunkSize = 1 << 14
@@ -68,7 +77,7 @@ func BenchmarkTorrentStorage(b *testing.B) {
 				}
 			}
 			h1 := newHash()
-			if false {
+			if true {
 				err := cache.Tx(func() bool {
 					readAndHashBytes(b, cache, key[:], pieceSize, h1)
 					return true

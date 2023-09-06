@@ -19,7 +19,7 @@ create table if not exists blob_meta (
     value
 ) without rowid;
 
-create index if not exists blob_last_used on blob(last_used);
+create index if not exists blob_last_used on blob(last_used, data_id);
 
 -- While sqlite *seems* to be faster to get sum(length(data)) instead of
 -- sum(length(data)), it may still require a large table scan at start-up or with a

@@ -1,12 +1,13 @@
 package squirrel
 
 import (
-	qt "github.com/frankban/quicktest"
 	"math/rand"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
+
+	qt "github.com/frankban/quicktest"
 )
 
 func tempCachePath(c testing.TB) string {
@@ -63,5 +64,11 @@ func readRand(b []byte) {
 	}
 	if n != len(b) {
 		panic(n)
+	}
+}
+
+func readRandSparse(b []byte) {
+	for i := 0; i < 10; i++ {
+		b[rand.Intn(len(b))] = byte(i)
 	}
 }
