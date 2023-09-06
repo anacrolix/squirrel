@@ -189,8 +189,7 @@ func (c *Cache) ReadFull(key string, b []byte) (n int, err error) {
 			if ok {
 				panic("duplicate rows for key")
 			}
-			colBytes := stmt.ColumnViewBytes(0)
-			n = copy(b, colBytes)
+			n = stmt.ColumnBytes(0, b)
 			ok = true
 			return nil
 		},

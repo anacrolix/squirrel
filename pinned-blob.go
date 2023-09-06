@@ -26,3 +26,7 @@ func (pb PinnedBlob) Close() error {
 	}
 	return pb.blob.Close()
 }
+
+func (pb PinnedBlob) WriteAt(b []byte, off int64) (int, error) {
+	return blobWriteAt(pb.blob, b, off)
+}
