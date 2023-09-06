@@ -1,7 +1,7 @@
 package squirrel
 
 import (
-	"github.com/go-llsqlite/adapter"
+	sqlite "github.com/go-llsqlite/adapter"
 	"github.com/go-llsqlite/adapter/sqlitex"
 )
 
@@ -49,7 +49,9 @@ func createBlob(c conn, name string, length int64, clobber bool) (rowid int64, e
 }
 
 func rowidForBlob(c conn, name string) (rowid int64, length int64, ok bool, err error) {
-	err = sqlitex.Exec(c, "select data_id, length(cast(data as blob)) from blob join blob_data using (data_id) where name=?", func(stmt *sqlite.Stmt) error {
+	// Holy shit. Use octet_length here for sqlite 3.43.0. Looks like this was loading the entire
+	// row to determine length.
+	err = sqlitex.Exec(c, "select data_id, length(data) from blob join blob_data using (data_id) where name=?", func(stmt *sqlite.Stmt) error {
 		if ok {
 			panic("expected at most one row")
 		}
