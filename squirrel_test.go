@@ -85,7 +85,7 @@ func TestConcurrentCreateBlob(t *testing.T) {
 		cache := newCache(c, opts)
 		t.Logf("opened cache for %q", value)
 		return func() error {
-			log.Printf("putting %q", value)
+			t.Logf("putting %q", value)
 			return cache.Put("greeting", []byte(value))
 		}
 	}

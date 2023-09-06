@@ -4,10 +4,9 @@ import (
 	_ "embed"
 	"errors"
 	"fmt"
-	"net/url"
-
 	"github.com/go-llsqlite/adapter"
 	"github.com/go-llsqlite/adapter/sqlitex"
+	"net/url"
 )
 
 type conn = *sqlite.Conn
@@ -46,6 +45,49 @@ func setSynchronous(conn conn, syncInt int) (err error) {
 	return nil
 }
 
+func setAndVerifyPragma(conn conn, name string, value any) (err error) {
+	valueStr := fmt.Sprint(value)
+	var once setOnce[string]
+	setPragmaQuery := fmt.Sprintf("pragma %s=%s", name, valueStr)
+	err = sqlitex.ExecTransient(
+		conn,
+		setPragmaQuery,
+		func(stmt *sqlite.Stmt) error {
+			once.Set(stmt.ColumnText(0))
+			return nil
+		},
+	)
+	if err != nil {
+		return
+	}
+	if !once.Ok() {
+		err = sqlitex.ExecTransient(
+			conn,
+			fmt.Sprintf("pragma %s", name),
+			func(stmt *sqlite.Stmt) error {
+				once.Set(stmt.ColumnText(0))
+				return nil
+			},
+		)
+		if err != nil {
+			return
+		}
+	}
+	if once.Value() != valueStr {
+		err = fmt.Errorf("%q returned %q", setPragmaQuery, once.Value())
+	}
+	return
+
+}
+
+func execTransientReturningText(conn conn, query string) (s string, err error) {
+	err = sqlitex.ExecTransient(conn, query, func(stmt *sqlite.Stmt) error {
+		s = stmt.ColumnText(0)
+		return nil
+	})
+	return
+}
+
 func initConn(conn conn, opts InitConnOpts, pageSize int) (err error) {
 	err = sqlitex.ExecTransient(conn, "pragma foreign_keys=on", nil)
 	if err != nil {
@@ -69,15 +111,21 @@ func initConn(conn conn, opts InitConnOpts, pageSize int) (err error) {
 		return
 	}
 	if opts.SetJournalMode != "" {
-		err = sqlitex.ExecTransient(conn, fmt.Sprintf(`pragma journal_mode=%s`, opts.SetJournalMode), func(stmt *sqlite.Stmt) error {
-			ret := stmt.ColumnText(0)
-			if ret != opts.SetJournalMode {
-				return ErrUnexpectedJournalMode{ret}
-			}
-			return nil
-		})
+		journalMode, err := execTransientReturningText(conn, fmt.Sprintf(`pragma journal_mode=%s`, opts.SetJournalMode))
 		if err != nil {
 			return err
+		}
+		if journalMode != opts.SetJournalMode {
+			return ErrUnexpectedJournalMode{journalMode}
+		}
+	}
+	if opts.SetLockingMode != "" {
+		mode, err := execTransientReturningText(conn, "pragma locking_mode="+opts.SetLockingMode)
+		if err != nil {
+			return err
+		}
+		if mode != opts.SetLockingMode {
+			return fmt.Errorf("error setting locking_mode, got %q", mode)
 		}
 	}
 	if !opts.MmapSizeOk {
@@ -87,12 +135,13 @@ func initConn(conn conn, opts InitConnOpts, pageSize int) (err error) {
 		// opts.MmapSize = 1 << 24 // 8 MiB
 	}
 	if opts.MmapSize >= 0 {
-		err = sqlitex.ExecTransient(conn, fmt.Sprintf(`pragma mmap_size=%d`, opts.MmapSize), nil)
+		err = setAndVerifyPragma(conn, "mmap_size", opts.MmapSize)
 		if err != nil {
 			return err
 		}
 	}
-	return nil
+	err = setAndVerifyPragma(conn, "cache_size", fmt.Sprint(-32<<20))
+	return
 }
 
 func setPageSize(conn conn, pageSize int) error {
@@ -161,6 +210,8 @@ func newOpenUri(opts NewConnOpts) string {
 	if opts.NoConcurrentBlobReads || opts.Memory {
 		values.Add("cache", "shared")
 	}
+	// This still seems to use temporary databases as expected when there's just ?, so no need to
+	// special case empty paths and empty queries.
 	return fmt.Sprintf("file:%s?%s", path, values.Encode())
 }
 
@@ -187,5 +238,7 @@ const openConnFlags = 0 |
 	sqlite.OpenNoMutex
 
 func newConn(opts NewConnOpts) (conn, error) {
-	return sqlite.OpenConn(newOpenUri(opts), openConnFlags)
+	uri := newOpenUri(opts)
+	//log.Printf("opening sqlite conn with uri %q", uri)
+	return sqlite.OpenConn(uri, openConnFlags)
 }

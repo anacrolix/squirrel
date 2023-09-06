@@ -38,7 +38,7 @@ func (p Blob) doWithBlob(
 	if err != nil {
 		return
 	}
-	if !p.cache.opts.NoCacheBlobs {
+	if p.cache.opts.NoCacheBlobs {
 		defer p.forgetBlob()
 	}
 	// log.Printf("getting blob")
@@ -89,14 +89,7 @@ func (p Blob) WriteAt(b []byte, off int64) (n int, err error) {
 }
 
 func (p Blob) SetTag(name string, value interface{}) (err error) {
-	p.cache.l.Lock()
-	defer p.cache.l.Unlock()
-	err = p.cache.getCacheErr()
-	if err != nil {
-		return
-	}
-	return sqlitex.Exec(p.cache.conn, "insert or replace into tag (blob_name, tag_name, value) values (?, ?, ?)", nil,
-		p.name, name, value)
+	return p.cache.SetTag(p.name, name, value)
 }
 
 func (p Blob) forgetBlob() {

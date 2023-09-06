@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-func benchCache(cache *Cache, b *testing.B) {
+func benchCacheGets(cache *Cache, b *testing.B) {
 	c := qt.New(b)
 	key := "hello"
 	value := []byte("world")
@@ -70,7 +70,7 @@ func BenchmarkNoCacheBlobs(b *testing.B) {
 	cacheOpts := NewCacheOpts{NoCacheBlobs: true, NoFlushBlobs: true}
 	//cacheOpts.Path = "here.db"
 	cache := newCache(c, cacheOpts)
-	benchCache(cache, b)
+	benchCacheGets(cache, b)
 }
 
 func BenchmarkCacheDefaults(b *testing.B) {
@@ -78,5 +78,5 @@ func BenchmarkCacheDefaults(b *testing.B) {
 	cacheOpts := NewCacheOpts{NoFlushBlobs: true}
 	//cacheOpts.Path = "here.db"
 	cache := newCache(c, cacheOpts)
-	benchCache(cache, b)
+	benchCacheGets(cache, b)
 }

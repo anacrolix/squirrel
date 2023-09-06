@@ -6,21 +6,6 @@ import (
 )
 
 func createBlob(c conn, name string, length int64, clobber bool) (rowid int64, err error) {
-	// end, err := sqlitex.ImmediateTransaction(c)
-	// if err != nil {
-	// 	err = fmt.Errorf("beginning transaction: %w", err)
-	// 	return
-	// }
-	// defer end(&err)
-	// sqlitex.Exec(c, "begin", nil)
-	// defer func() {
-	// 	if err != nil {
-	// 		sqlitex.Exec(c, "rollback", nil)
-	// 	} else {
-	// 		sqlitex.Exec(c, "end", nil)
-	// 	}
-	// }()
-	// defer sqlitex.Transaction(c)(&err)
 	if clobber {
 		var dataId setOnce[int64]
 		err = sqlitex.Exec(c, "select data_id from blob where name=?", func(stmt *sqlite.Stmt) error {

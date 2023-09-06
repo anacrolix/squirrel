@@ -3,29 +3,28 @@ module github.com/anacrolix/squirrel
 go 1.18
 
 require (
-	github.com/alexflint/go-arg v1.4.2
-	github.com/anacrolix/envpprof v1.1.1
-	github.com/frankban/quicktest v1.13.1
+	github.com/alexflint/go-arg v1.4.3
+	github.com/anacrolix/envpprof v1.2.1
+	github.com/anacrolix/torrent v1.52.5
+	github.com/frankban/quicktest v1.14.4
 	github.com/go-llsqlite/adapter v0.0.0-20230905083127-a7568332b3ac
-	golang.org/x/sync v0.0.0-20210220032951-036812b2e83c
+	golang.org/x/sync v0.0.0-20220722155255-886fb9371eb4
 )
 
 require (
-	github.com/alexflint/go-scalar v1.0.0 // indirect
-	github.com/anacrolix/log v0.3.0 // indirect
-	github.com/anacrolix/missinggo v1.2.1 // indirect
-	github.com/bradfitz/iter v0.0.0-20190303215204-33e6a9893b0c // indirect
+	github.com/alexflint/go-scalar v1.1.0 // indirect
+	github.com/anacrolix/generics v0.0.0-20230428105757-683593396d68 // indirect
+	github.com/anacrolix/log v0.14.0 // indirect
 	github.com/dustin/go-humanize v1.0.0 // indirect
 	github.com/go-llsqlite/crawshaw v0.0.0-20230904103556-219a9360a2c0 // indirect
 	github.com/google/go-cmp v0.5.9 // indirect
 	github.com/google/uuid v1.3.0 // indirect
-	github.com/huandu/xstrings v1.0.0 // indirect
-	github.com/kr/pretty v0.3.0 // indirect
+	github.com/kr/pretty v0.3.1 // indirect
 	github.com/kr/text v0.2.0 // indirect
 	github.com/mattn/go-isatty v0.0.16 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
-	github.com/rogpeppe/go-internal v1.6.1 // indirect
-	github.com/stretchr/testify v1.7.0 // indirect
+	github.com/rogpeppe/go-internal v1.9.0 // indirect
+	golang.org/x/exp v0.0.0-20220613132600-b0d781184e0d // indirect
 	golang.org/x/sys v0.6.0 // indirect
 	modernc.org/libc v1.22.3 // indirect
 	modernc.org/mathutil v1.5.0 // indirect

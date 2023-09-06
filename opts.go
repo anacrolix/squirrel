@@ -5,6 +5,7 @@ type InitConnOpts struct {
 	SetJournalMode string
 	MmapSizeOk     bool  // If false, a package-specific default will be used.
 	MmapSize       int64 // If MmapSizeOk is set, use sqlite default if < 0, otherwise this value.
+	SetLockingMode string
 }
 
 type InitDbOpts struct {

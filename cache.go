@@ -24,11 +24,6 @@ func NewCache(opts NewCacheOpts) (_ *Cache, err error) {
 	if err != nil {
 		return
 	}
-	if opts.PageSize == 0 {
-		// The largest size sqlite supports. I think we want this to be the smallest Blob size we
-		// can expect, which is probably 1<<17.
-		opts.PageSize = 1 << 16
-	}
 	err = initConn(conn, opts.InitConnOpts, opts.PageSize)
 	if err != nil {
 		conn.Close()
@@ -216,4 +211,21 @@ func (c *Cache) Tx(f func() bool) (err error) {
 		err = sqlitex.Exec(c.conn, "rollback", nil)
 	}
 	return
+}
+
+func (c *Cache) SetTag(key, name string, value interface{}) (err error) {
+	c.l.Lock()
+	defer c.l.Unlock()
+	err = c.getCacheErr()
+	if err != nil {
+		return
+	}
+	return sqlitex.Exec(
+		c.conn,
+		"insert or replace into tag (blob_name, tag_name, value) values (?, ?, ?)",
+		nil,
+		key,
+		name,
+		value,
+	)
 }
