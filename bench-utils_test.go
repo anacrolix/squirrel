@@ -22,7 +22,12 @@ func newCachePath(c *qt.C, dir string) string {
 	return file.Name()
 }
 
-func benchCache(b *testing.B, cacheOpts NewCacheOpts, setup func(cache *Cache) error, loop func(cache *Cache) error) {
+func benchCache(
+	b *testing.B,
+	cacheOpts NewCacheOpts,
+	setup func(cache *Cache) error,
+	loop func(cache *Cache) error,
+) {
 	c := qt.New(b)
 	cache := newCache(c, cacheOpts)
 	err := setup(cache)
@@ -49,7 +54,7 @@ func benchCacheWrapLoop(b *testing.B, cacheOpts NewCacheOpts, setup func(cache *
 
 func defaultCacheOpts(tb testing.TB) (ret NewCacheOpts) {
 	ret.Path = tempCachePath(tb)
-	ret.PageSize = 4096
+	ret.PageSize = 1 << 12
 	return
 }
 
