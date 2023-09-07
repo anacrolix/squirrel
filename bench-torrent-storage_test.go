@@ -2,22 +2,11 @@ package squirrel
 
 import (
 	"encoding/binary"
-	"hash/crc32"
 	"io"
 	"testing"
 
 	qt "github.com/frankban/quicktest"
 )
-
-func BenchmarkHash(b *testing.B) {
-	h := crc32.NewIEEE()
-	var buf [4096]byte
-	b.SetBytes(int64(len(buf)))
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		h.Write(buf[:])
-	}
-}
 
 const defaultPieceSize = 2 << 20
 
@@ -36,8 +25,6 @@ func BenchmarkRandReadSparse(b *testing.B) {
 		readRandSparse(piece[:])
 	}
 }
-
-var newHash = crc32.NewIEEE
 
 func BenchmarkTorrentStorage(b *testing.B) {
 	c := qt.New(b)
@@ -68,7 +55,7 @@ func BenchmarkTorrentStorage(b *testing.B) {
 			readRand(key[:20])
 			var piece [2 << 20]byte
 			readRandSparse(piece[:])
-			h0 := newHash()
+			h0 := newFastestHash()
 			h0.Write(piece[:])
 			const chunkSize = 1 << 14
 			for off := uint32(0); off < pieceSize; off += chunkSize {
@@ -83,7 +70,7 @@ func BenchmarkTorrentStorage(b *testing.B) {
 					}
 				}
 			}
-			h1 := newHash()
+			h1 := newFastestHash()
 			if true {
 				err := cache.Tx(func() bool {
 					readAndHashBytes(b, cache, key[:], pieceSize, h1)
