@@ -55,8 +55,12 @@ func benchmarkTorrentStorage(
 	if logTorrentStorageBenchmarkDbPaths {
 		b.Logf("db path: %q", cacheOpts.Path)
 	}
-	const pieceSize = 2560
-	const chunkSize = 20
+	const chunkSize = 1 << 14
+	const pieceSize = 2 << 20
+	//const chunkSize = 20
+	//const pieceSize = 2560
+	var key [20]byte
+	readRand(key[:])
 	benchCache(
 		b,
 		cacheOpts,
@@ -64,8 +68,6 @@ func benchmarkTorrentStorage(
 			return nil
 		},
 		func(cache *Cache) error {
-			var key [20]byte
-			readRand(key[:])
 			var piece [pieceSize]byte
 			readRandSparse(piece[:])
 			h0 := newFastestHash()
@@ -159,11 +161,12 @@ func readHashAndTagOneBigPiece(
 	buf []byte,
 	hash io.Writer,
 ) (err error) {
-	blob, err := cache.Open(string(key))
+	blob, err := cache.OpenPinned(string(key))
 	if err != nil {
 		panic(err)
 	}
 	io.Copy(hash, io.NewSectionReader(blob, 0, blob.Length()))
+	blob.Close()
 	return
 }
 
@@ -231,8 +234,8 @@ func benchmarkTorrentStorageVaryingChunksPiecesTransactions(
 		benchmarkTorrentStorage(
 			b,
 			newCacheOpts(),
-			writeChunksSeparately,
-			readAndHashSeparateChunks,
+			writeToOneBigPiece,
+			readHashAndTagOneBigPiece,
 		)
 	})
 }
