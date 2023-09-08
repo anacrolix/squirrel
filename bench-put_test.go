@@ -4,9 +4,9 @@ import (
 	"testing"
 )
 
-func benchmarkPutSmallItem(b *testing.B, cacheOpts NewCacheOpts) {
+func benchmarkPutSmallItem(b *testing.B, cacheOpts func() NewCacheOpts) {
 	benchCache(b,
-		cacheOpts,
+		cacheOpts(),
 		func(cache *Cache) error {
 			return cache.Put(defaultKey, defaultValue)
 		},

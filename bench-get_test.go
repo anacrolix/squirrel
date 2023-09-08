@@ -144,8 +144,8 @@ func BenchmarkReadAtEndOfBlob(b *testing.B) {
 			cacheOpts.CacheSize = g.Some[int64](-1 << 10) // 1 MiB
 			return cacheOpts
 		},
-		func(b *testing.B, opts NewCacheOpts) {
-			benchmarkReadAtEndOfBlob(b, 4<<20, 4<<10, opts)
+		func(b *testing.B, opts func() NewCacheOpts) {
+			benchmarkReadAtEndOfBlob(b, 4<<20, 4<<10, opts())
 		},
 		blobCachings, autoVacuums)
 }
@@ -158,7 +158,7 @@ type nestedBench struct {
 func startNestedBenchmark(
 	b *testing.B,
 	newCacheOpts func(b testing.TB) NewCacheOpts,
-	finally func(b *testing.B, opts NewCacheOpts),
+	finally func(b *testing.B, opts func() NewCacheOpts),
 	nested ...[]nestedBench,
 ) {
 	runNested(b, nil, newCacheOpts, nested, finally)
@@ -169,14 +169,16 @@ func runNested(
 	withOpts []func(*NewCacheOpts),
 	newCacheOpts func(testing.TB) NewCacheOpts,
 	nested [][]nestedBench,
-	finally func(b *testing.B, opts NewCacheOpts),
+	finally func(b *testing.B, opts func() NewCacheOpts),
 ) {
 	if len(nested) == 0 {
-		cacheOpts := newCacheOpts(b)
-		for _, withOpt := range withOpts {
-			withOpt(&cacheOpts)
-		}
-		finally(b, cacheOpts)
+		finally(b, func() NewCacheOpts {
+			cacheOpts := newCacheOpts(b)
+			for _, withOpt := range withOpts {
+				withOpt(&cacheOpts)
+			}
+			return cacheOpts
+		})
 		return
 	}
 	for _, n := range nested[0] {

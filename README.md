@@ -52,5 +52,6 @@ Benchmarks are from use in [anacrolix/torrent]:
 
  * If auto_vacuum is not none, sqlite3 includes pointer map pages which makes reading at arbitrary offsets in blobs significantly faster.
  * Having lots of outstanding incremental blob handles is expensive as they are tracked in a linked list of cursors and get invalidated in certain circumstances.
+ * Journal mode delete is almost as fast as WAL but only if the locking mode is exclusive.
 
 [anacrolix/torrent]: (https://github.com/anacrolix/torrent)

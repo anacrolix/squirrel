@@ -6,8 +6,6 @@ import (
 	g "github.com/anacrolix/generics"
 	"io"
 	"testing"
-
-	qt "github.com/frankban/quicktest"
 )
 
 const defaultPieceSize = 2 << 20
@@ -172,12 +170,10 @@ func readHashAndTagOneBigPiece(
 }
 
 func BenchmarkTorrentStorage(b *testing.B) {
-	c := qt.New(b)
-	newCacheOpts := func() NewCacheOpts {
+	newCacheOpts := func(c testing.TB) NewCacheOpts {
 		cacheOpts := defaultCacheOpts(c)
 		// Can't start a transaction while blobs are cached.
 		cacheOpts.NoCacheBlobs = true
-		cacheOpts.SetJournalMode = "wal"
 		//cacheOpts.Path = newCachePath(c, "testdbs")
 		//cacheOpts.Path = ""
 		//cacheOpts.MmapSize = 64 << 20
@@ -186,11 +182,36 @@ func BenchmarkTorrentStorage(b *testing.B) {
 		//cacheOpts.SetLockingMode = "exclusive"
 		// The triggers are problematic as they're not handling large blob counts properly.
 		//cacheOpts.NoTriggers = true
-		cacheOpts.SetAutoVacuum = g.Some("2")
+		cacheOpts.SetAutoVacuum = g.Some("incremental")
 		cacheOpts.RequireAutoVacuum = g.Some[any](2)
 		return cacheOpts
 	}
-	benchmarkTorrentStorageVaryingChunksPiecesTransactions(b, newCacheOpts)
+	startNestedBenchmark(
+		b,
+		newCacheOpts,
+		func(b *testing.B, opts func() NewCacheOpts) {
+			benchmarkTorrentStorageVaryingChunksPiecesTransactions(b, opts)
+		},
+		[]nestedBench{
+			{"Wal", func(opts *NewCacheOpts) {
+				opts.SetJournalMode = "wal"
+			}},
+			{"Delete", func(opts *NewCacheOpts) {
+				opts.SetJournalMode = "delete"
+			}},
+			{"JournalModeOff", func(opts *NewCacheOpts) {
+				opts.SetJournalMode = "off"
+			}},
+		},
+		[]nestedBench{
+			{"LockingModeExclusive", func(opts *NewCacheOpts) {
+				opts.SetLockingMode = "exclusive"
+			}},
+			{"LockingModeNormal", func(opts *NewCacheOpts) {
+				opts.SetLockingMode = "normal"
+			}},
+		},
+	)
 }
 
 func benchmarkTorrentStorageVaryingChunksPiecesTransactions(
