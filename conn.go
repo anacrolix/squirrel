@@ -2,7 +2,6 @@ package squirrel
 
 import (
 	_ "embed"
-	"errors"
 	"fmt"
 	"github.com/go-llsqlite/adapter"
 	"github.com/go-llsqlite/adapter/sqlitex"
@@ -10,83 +9,6 @@ import (
 )
 
 type conn = *sqlite.Conn
-
-type ErrUnexpectedJournalMode struct {
-	JournalMode string
-}
-
-func (me ErrUnexpectedJournalMode) Error() string {
-	return fmt.Sprintf("unexpected journal mode: %q", me.JournalMode)
-}
-
-func setSynchronous(conn conn, syncInt int) (err error) {
-	err = sqlitex.ExecTransient(conn, fmt.Sprintf(`pragma synchronous=%v`, syncInt), nil)
-	if err != nil {
-		return err
-	}
-	var (
-		actual   int
-		actualOk bool
-	)
-	err = sqlitex.ExecTransient(conn, `pragma synchronous`, func(stmt *sqlite.Stmt) error {
-		actual = stmt.ColumnInt(0)
-		actualOk = true
-		return nil
-	})
-	if err != nil {
-		return
-	}
-	if !actualOk {
-		return errors.New("synchronous setting query didn't return anything")
-	}
-	if actual != syncInt {
-		return fmt.Errorf("set synchronous %q, got %q", syncInt, actual)
-	}
-	return nil
-}
-
-func setAndVerifyPragma(conn conn, name string, value any) (err error) {
-	valueStr := fmt.Sprint(value)
-	var once setOnce[string]
-	setPragmaQuery := fmt.Sprintf("pragma %s=%s", name, valueStr)
-	err = sqlitex.ExecTransient(
-		conn,
-		setPragmaQuery,
-		func(stmt *sqlite.Stmt) error {
-			once.Set(stmt.ColumnText(0))
-			return nil
-		},
-	)
-	if err != nil {
-		return
-	}
-	if !once.Ok() {
-		err = sqlitex.ExecTransient(
-			conn,
-			fmt.Sprintf("pragma %s", name),
-			func(stmt *sqlite.Stmt) error {
-				once.Set(stmt.ColumnText(0))
-				return nil
-			},
-		)
-		if err != nil {
-			return
-		}
-	}
-	if once.Value() != valueStr {
-		err = fmt.Errorf("%q returned %q", setPragmaQuery, once.Value())
-	}
-	return
-
-}
-
-func execTransientReturningText(conn conn, query string) (s string, err error) {
-	err = sqlitex.ExecTransient(conn, query, func(stmt *sqlite.Stmt) error {
-		s = stmt.ColumnText(0)
-		return nil
-	})
-	return
-}
 
 func initConn(conn conn, opts InitConnOpts, pageSize int) (err error) {
 	err = sqlitex.ExecTransient(conn, "pragma foreign_keys=on", nil)
@@ -111,21 +33,22 @@ func initConn(conn conn, opts InitConnOpts, pageSize int) (err error) {
 		return
 	}
 	if opts.SetJournalMode != "" {
-		journalMode, err := execTransientReturningText(conn, fmt.Sprintf(`pragma journal_mode=%s`, opts.SetJournalMode))
+		journalMode, err := execTransientReturningText(
+			conn,
+			fmt.Sprintf(`pragma journal_mode=%s`, opts.SetJournalMode),
+		)
 		if err != nil {
 			return err
 		}
-		if journalMode != opts.SetJournalMode {
-			return ErrUnexpectedJournalMode{journalMode}
+		// Pragma journal_mode always returns the journal mode.
+		if journalMode.Unwrap() != opts.SetJournalMode {
+			return ErrUnexpectedJournalMode{journalMode.Unwrap()}
 		}
 	}
 	if opts.SetLockingMode != "" {
-		mode, err := execTransientReturningText(conn, "pragma locking_mode="+opts.SetLockingMode)
+		err := setAndVerifyPragma(conn, "locking_mode", opts.SetLockingMode)
 		if err != nil {
 			return err
-		}
-		if mode != opts.SetLockingMode {
-			return fmt.Errorf("error setting locking_mode, got %q", mode)
 		}
 	}
 	if !opts.MmapSizeOk {
@@ -140,7 +63,9 @@ func initConn(conn conn, opts InitConnOpts, pageSize int) (err error) {
 			return err
 		}
 	}
-	err = setAndVerifyPragma(conn, "cache_size", fmt.Sprint(-32<<20))
+	if opts.CacheSize.Ok {
+		err = setAndVerifyPragma(conn, "cache_size", opts.CacheSize.Value)
+	}
 	return
 }
 
@@ -148,22 +73,7 @@ func setPageSize(conn conn, pageSize int) error {
 	if pageSize == 0 {
 		return nil
 	}
-	var retSize int64
-	err := sqlitex.ExecTransient(conn, fmt.Sprintf(`pragma page_size=%d`, pageSize), nil)
-	if err != nil {
-		return err
-	}
-	err = sqlitex.ExecTransient(conn, "pragma page_size", func(stmt *sqlite.Stmt) error {
-		retSize = stmt.ColumnInt64(0)
-		return nil
-	})
-	if err != nil {
-		return err
-	}
-	if retSize != int64(pageSize) {
-		return fmt.Errorf("requested page size %v but got %v", pageSize, retSize)
-	}
-	return nil
+	return setAndVerifyPragma(conn, "page_size", pageSize)
 }
 
 var (
@@ -216,6 +126,30 @@ func newOpenUri(opts NewConnOpts) string {
 }
 
 func initDatabase(conn conn, opts InitDbOpts) (err error) {
+	if opts.SetAutoVacuum.Ok {
+		err = setAndMaybeVerifyPragma(
+			conn,
+			"auto_vacuum",
+			opts.SetAutoVacuum.Value,
+			opts.RequireAutoVacuum,
+		)
+		if err != nil {
+			return err
+		}
+	} else if opts.RequireAutoVacuum.Ok {
+		autoVacuumValue, err := execTransientReturningText(conn, "pragma auto_vacuum")
+		if err != nil {
+			return err
+		}
+		if autoVacuumValue.Unwrap() != opts.RequireAutoVacuum.Value {
+			err = fmt.Errorf(
+				"auto_vacuum is %q not %q",
+				autoVacuumValue.Value,
+				opts.RequireAutoVacuum.Value,
+			)
+			return err
+		}
+	}
 	if !opts.DontInitSchema {
 		err = InitSchema(conn, opts.PageSize, !opts.NoTriggers)
 		if err != nil {

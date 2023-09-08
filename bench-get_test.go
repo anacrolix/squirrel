@@ -2,6 +2,7 @@ package squirrel
 
 import (
 	"fmt"
+	g "github.com/anacrolix/generics"
 	qt "github.com/frankban/quicktest"
 	"io"
 	"testing"
@@ -79,4 +80,85 @@ func BenchmarkCacheDefaults(b *testing.B) {
 	//cacheOpts.Path = "here.db"
 	cache := newCache(c, cacheOpts)
 	benchCacheGets(cache, b)
+}
+
+func benchmarkReadAtEndOfBlob(b *testing.B, blobSize int, readSize int, cacheOpts NewCacheOpts) {
+	value := make([]byte, blobSize)
+	readRandSparse(value)
+	buf := make([]byte, readSize)
+	b.SetBytes(int64(readSize))
+	benchCache(b, cacheOpts,
+		func(cache *Cache) error {
+			return cache.Put(defaultKey, value)
+		},
+		func(cache *Cache) (err error) {
+			pb, err := cache.OpenPinned(defaultKey)
+			if err != nil {
+				return err
+			}
+			defer pb.Close()
+			n, err := pb.ReadAt(buf, int64(len(value)-len(buf)))
+			if err != nil {
+				return
+			}
+			if n != len(buf) {
+				panic(n)
+			}
+			return nil
+		})
+}
+
+// Demonstrate that reads from the end of blobs is slow without overflow caching, or pointer maps
+// enabled.
+func BenchmarkReadAtEndOfBlob(b *testing.B) {
+	autoVacuums := []nestedBench{
+		{"AutoVacuumNone", func(opts *NewCacheOpts) {
+			opts.SetAutoVacuum = g.Some("none")
+			opts.RequireAutoVacuum = g.Some[any](0)
+		}},
+		{"AutoVacuumIncremental", func(opts *NewCacheOpts) {
+			// Show that incremental still generates a "pointer map" in sqlite3.
+			opts.SetAutoVacuum = g.Some("incremental")
+			opts.RequireAutoVacuum = g.Some[any](2)
+		}},
+		{"AutoVacuumFull", func(opts *NewCacheOpts) {
+			opts.SetAutoVacuum = g.Some("full")
+			opts.RequireAutoVacuum = g.Some[any](1)
+		}},
+	}
+	blobCachings := []nestedBench{
+		{"NoBlobCaching", func(opts *NewCacheOpts) {
+			opts.NoCacheBlobs = true
+		}},
+		{"BlobCaching", func(opts *NewCacheOpts) {
+			opts.NoCacheBlobs = false
+			// The single blob might be flushed by default.
+			opts.NoFlushBlobs = true
+		}},
+	}
+	runNested(b, nil, [][]nestedBench{blobCachings, autoVacuums})
+}
+
+type nestedBench struct {
+	name     string
+	withOpts func(opts *NewCacheOpts)
+}
+
+func runNested(b *testing.B, withOpts []func(*NewCacheOpts), nested [][]nestedBench) {
+	if len(nested) == 0 {
+		cacheOpts := defaultCacheOpts(b)
+		// This needs to be significantly less than the blob size or the linked list of pages will
+		// be cached.
+		cacheOpts.CacheSize = g.Some[int64](-1 << 10) // 1 MiB
+		for _, withOpt := range withOpts {
+			withOpt(&cacheOpts)
+		}
+		benchmarkReadAtEndOfBlob(b, 4<<20, 4<<10, cacheOpts)
+		return
+	}
+	for _, n := range nested[0] {
+		b.Run(n.name, func(b *testing.B) {
+			runNested(b, append(withOpts, n.withOpts), nested[1:])
+		})
+	}
 }

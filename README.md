@@ -46,5 +46,11 @@ Benchmarks are from use in [anacrolix/torrent]:
  * Add/support expiries.
  * Use auto vacuum and pragma page_count.
  * Add transaction support.
+ * Use incremental blob reopen to avoid recreating cursors and other overhead in registering incremental blobs. Possibly one per connection.
+
+## sqlite3 Notes
+
+ * If auto_vacuum is not none, sqlite3 includes pointer map pages which makes reading at arbitrary offsets in blobs significantly faster.
+ * Having lots of outstanding incremental blob handles is expensive as they are tracked in a linked list of cursors and get invalidated in certain circumstances.
 
 [anacrolix/torrent]: (https://github.com/anacrolix/torrent)

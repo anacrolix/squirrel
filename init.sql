@@ -1,13 +1,8 @@
--- We have to opt into this before creating any tables, or before a vacuum to enable it. It means we
--- can trim the database file size with partial vacuums without having to do a full vacuum, which
--- locks everything.
-pragma auto_vacuum=incremental;
-
 create table if not exists blob (
     name text primary key,
     last_used timestamp default (datetime('now')),
     data_id integer not null references blob_data(data_id) on delete cascade
-) without rowid;
+);
 
 create table if not exists blob_data (
     data_id integer primary key,

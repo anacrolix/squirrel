@@ -15,7 +15,7 @@ func BenchmarkRandRead(b *testing.B) {
 	var piece [defaultPieceSize]byte
 	b.SetBytes(defaultPieceSize)
 	for i := 0; i < b.N; i++ {
-		readRand(piece[:])
+		readRandSlow(piece[:])
 	}
 }
 
@@ -60,7 +60,7 @@ func benchmarkTorrentStorage(
 	//const chunkSize = 20
 	//const pieceSize = 2560
 	var key [20]byte
-	readRand(key[:])
+	readRandSlow(key[:])
 	benchCache(
 		b,
 		cacheOpts,
@@ -184,7 +184,7 @@ func BenchmarkTorrentStorage(b *testing.B) {
 		//cacheOpts.Capacity = 4 << 20
 		cacheOpts.SetLockingMode = "exclusive"
 		// The triggers are problematic as they're not handling large blob counts properly.
-		cacheOpts.NoTriggers = false
+		cacheOpts.NoTriggers = true
 		return cacheOpts
 	}
 	benchmarkTorrentStorageVaryingChunksPiecesTransactions(b, newCacheOpts)

@@ -42,19 +42,24 @@ func benchCache(
 	}
 }
 
-func benchCacheWrapLoop(b *testing.B, cacheOpts NewCacheOpts, setup func(cache *Cache) error, loop func(cache *Cache) error) {
+func benchCacheWrapLoop(
+	b *testing.B,
+	cacheOpts NewCacheOpts,
+	setup func(cache *Cache) error,
+	loop func(cache *Cache) error,
+) {
 	c := qt.New(b)
 	cache := newCache(c, cacheOpts)
 	err := setup(cache)
 	c.Assert(err, qt.IsNil)
 	b.ResetTimer()
 	err = loop(cache)
+	b.StopTimer()
 	c.Assert(err, qt.IsNil)
 }
 
 func defaultCacheOpts(tb testing.TB) (ret NewCacheOpts) {
 	ret.Path = tempCachePath(tb)
-	ret.PageSize = 1 << 12
 	return
 }
 
@@ -62,7 +67,7 @@ const defaultKey = "hello"
 
 var defaultValue = []byte("world")
 
-func readRand(b []byte) {
+func readRandSlow(b []byte) {
 	n, err := rand.Read(b)
 	if err != nil {
 		panic(err)
