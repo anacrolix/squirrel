@@ -48,6 +48,9 @@ func newCache(c *qt.C, opts NewCacheOpts) *Cache {
 	if opts.Memory && opts.SetLockingMode != "exclusive" {
 		c.Skip("in-memory databases are always exclusive")
 	}
+	if opts.Path == "" && opts.SetLockingMode == "normal" {
+		c.Skip("anonymous databases are always exclusive")
+	}
 	cache, err := NewCache(opts)
 	c.Assert(err, qt.IsNil)
 	c.Cleanup(func() {
