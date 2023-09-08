@@ -24,12 +24,13 @@ func NewCache(opts NewCacheOpts) (_ *Cache, err error) {
 	if err != nil {
 		return
 	}
-	err = initConn(conn, opts.InitConnOpts, opts.PageSize)
+	// pragma auto_vacuum=X needs to occur before pragma journal_mode=wal
+	err = initDatabase(conn, opts.InitDbOpts)
 	if err != nil {
 		conn.Close()
 		return
 	}
-	err = initDatabase(conn, opts.InitDbOpts)
+	err = initConn(conn, opts.InitConnOpts, opts.PageSize)
 	if err != nil {
 		conn.Close()
 		return

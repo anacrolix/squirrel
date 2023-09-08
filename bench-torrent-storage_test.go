@@ -3,6 +3,7 @@ package squirrel
 import (
 	"encoding/binary"
 	"errors"
+	g "github.com/anacrolix/generics"
 	"io"
 	"testing"
 
@@ -182,9 +183,11 @@ func BenchmarkTorrentStorage(b *testing.B) {
 		//cacheOpts.MmapSize = 64 << 20
 		//cacheOpts.MmapSizeOk = true
 		//cacheOpts.Capacity = 4 << 20
-		cacheOpts.SetLockingMode = "exclusive"
+		//cacheOpts.SetLockingMode = "exclusive"
 		// The triggers are problematic as they're not handling large blob counts properly.
-		cacheOpts.NoTriggers = true
+		//cacheOpts.NoTriggers = true
+		cacheOpts.SetAutoVacuum = g.Some("2")
+		cacheOpts.RequireAutoVacuum = g.Some[any](2)
 		return cacheOpts
 	}
 	benchmarkTorrentStorageVaryingChunksPiecesTransactions(b, newCacheOpts)

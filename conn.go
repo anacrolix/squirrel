@@ -127,6 +127,7 @@ func newOpenUri(opts NewConnOpts) string {
 
 func initDatabase(conn conn, opts InitDbOpts) (err error) {
 	if opts.SetAutoVacuum.Ok {
+		// This needs to occur before setting journal mode to WAL.
 		err = setAndMaybeVerifyPragma(
 			conn,
 			"auto_vacuum",
