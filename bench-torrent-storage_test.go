@@ -13,19 +13,19 @@ import (
 const defaultPieceSize = 2 << 20
 
 func BenchmarkRandRead(b *testing.B) {
+	b.Skip("not interesting normally")
 	var piece [defaultPieceSize]byte
 	b.SetBytes(defaultPieceSize)
-	for i := 0; i < b.N; i++ {
-		readRandSlow(piece[:])
-	}
-}
-
-func BenchmarkRandReadSparse(b *testing.B) {
-	var piece [defaultPieceSize]byte
-	b.SetBytes(defaultPieceSize)
-	for i := 0; i < b.N; i++ {
-		readRandSparse(piece[:])
-	}
+	b.Run("Slow", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			readRandSlow(piece[:])
+		}
+	})
+	b.Run("Sparse", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			readRandSparse(piece[:])
+		}
+	})
 }
 
 type offIterFunc = func() (uint32, bool)

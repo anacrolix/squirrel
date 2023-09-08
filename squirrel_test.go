@@ -42,6 +42,12 @@ func TestBlobWriteOutOfBounds(t *testing.T) {
 }
 
 func newCache(c *qt.C, opts NewCacheOpts) *Cache {
+	if opts.SetJournalMode == "wal" && opts.Memory || opts.Path == "" {
+		c.Skip("can't use WAL with anonymous or memory database")
+	}
+	if opts.Memory && opts.SetLockingMode != "exclusive" {
+		c.Skip("in-memory databases are always exclusive")
+	}
 	cache, err := NewCache(opts)
 	c.Assert(err, qt.IsNil)
 	c.Cleanup(func() {

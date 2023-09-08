@@ -11,6 +11,7 @@ import (
 var newFastestHash = crc32.NewIEEE
 
 func BenchmarkHashes(b *testing.B) {
+	b.Skip("not usually worth running")
 	const bufSize = 4096
 	benchHash := func(name string, h hash.Hash) {
 		b.Run(name, func(b *testing.B) {
