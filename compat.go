@@ -6,6 +6,8 @@ import (
 
 // Blob API differs between crawshaw and zombiezen.
 
+type rowid = int64
+
 func blobReadAt(blob *sqlite.Blob, b []byte, off int64) (n int, err error) {
 	return blob.ReadAt(b, off)
 }

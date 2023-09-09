@@ -3,6 +3,7 @@ package squirrel
 import (
 	"encoding/binary"
 	"errors"
+	"fmt"
 	g "github.com/anacrolix/generics"
 	"io"
 	"testing"
@@ -97,7 +98,8 @@ func benchmarkTorrentStorage(
 			h1 := newFastestHash()
 			err := readAndHash(cache, key[:], makeOffIter(), pieceSize, piece[:], h1)
 			if err != nil {
-				panic(err)
+				err = fmt.Errorf("while reading and hashing: %w", err)
+				return err
 			}
 			if h0.Sum32() != h1.Sum32() {
 				b.Fatal("hashes don't match")
@@ -164,24 +166,14 @@ func readHashAndTagOneBigPiece(
 	if err != nil {
 		panic(err)
 	}
-	io.Copy(hash, io.NewSectionReader(blob, 0, blob.Length()))
-	blob.Close()
+	defer blob.Close()
+	_, err = io.Copy(hash, io.NewSectionReader(blob, 0, blob.Length()))
 	return
 }
 
 func BenchmarkTorrentStorage(b *testing.B) {
 	newCacheOpts := func(c testing.TB) NewCacheOpts {
 		cacheOpts := defaultCacheOpts(c)
-		// Can't start a transaction while blobs are cached.
-		cacheOpts.NoCacheBlobs = true
-		//cacheOpts.Path = newCachePath(c, "testdbs")
-		//cacheOpts.Path = ""
-		//cacheOpts.MmapSize = 64 << 20
-		//cacheOpts.MmapSizeOk = true
-		//cacheOpts.Capacity = 4 << 20
-		//cacheOpts.SetLockingMode = "exclusive"
-		// The triggers are problematic as they're not handling large blob counts properly.
-		//cacheOpts.NoTriggers = true
 		cacheOpts.SetAutoVacuum = g.Some("incremental")
 		cacheOpts.RequireAutoVacuum = g.Some[any](2)
 		return cacheOpts
@@ -191,6 +183,14 @@ func BenchmarkTorrentStorage(b *testing.B) {
 		newCacheOpts,
 		func(b *testing.B, opts func() NewCacheOpts) {
 			benchmarkTorrentStorageVaryingChunksPiecesTransactions(b, opts)
+		},
+		[]nestedBench{
+			{"NoBlobCaching", func(opts *NewCacheOpts) {
+				opts.NoCacheBlobs = true
+			}},
+			{"BlobCaching", func(opts *NewCacheOpts) {
+				opts.NoCacheBlobs = false
+			}},
 		},
 		[]nestedBench{
 			{"Wal", func(opts *NewCacheOpts) {

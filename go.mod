@@ -16,7 +16,7 @@ require (
 	github.com/anacrolix/generics v0.0.0-20230428105757-683593396d68 // indirect
 	github.com/anacrolix/log v0.14.0 // indirect
 	github.com/dustin/go-humanize v1.0.0 // indirect
-	github.com/go-llsqlite/crawshaw v0.0.0-20230904103556-219a9360a2c0 // indirect
+	github.com/go-llsqlite/crawshaw v0.0.0-20230908140959-2f614f0fc470 // indirect
 	github.com/google/go-cmp v0.5.9 // indirect
 	github.com/google/uuid v1.3.0 // indirect
 	github.com/kr/pretty v0.3.1 // indirect

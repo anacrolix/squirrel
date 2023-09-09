@@ -2,6 +2,7 @@ package squirrel
 
 import (
 	"errors"
+	g "github.com/anacrolix/generics"
 	"sync"
 	"time"
 
@@ -124,7 +125,7 @@ func (c *Cache) Close() (err error) {
 }
 
 // Returns an existing blob only.
-func (c *Cache) Open(name string) (ret PinnedBlob, err error) {
+func (c *Cache) Open(name string) (ret *PinnedBlob, err error) {
 	if !c.reclaimsBlobs() {
 		err = errors.New("you must call OpenPinned if blob caching is disabled")
 		return
@@ -134,15 +135,20 @@ func (c *Cache) Open(name string) (ret PinnedBlob, err error) {
 
 // Returns a PinnedBlob. The item must already exist. You must call PinnedBlob.Release when done
 // with it.
-func (c *Cache) OpenPinned(name string) (ret PinnedBlob, err error) {
-	ret.c = c
+func (c *Cache) OpenPinned(name string) (ret *PinnedBlob, err error) {
 	c.l.Lock()
 	defer c.l.Unlock()
 	err = c.getCacheErr()
 	if err != nil {
 		return
 	}
-	ret.blob, err = c.getBlob(name, false, -1, false)
+	ret = &PinnedBlob{
+		key: name,
+		c:   c,
+	}
+	ret.c = c
+	ret.key = name
+	ret.blob, ret.rowid, err = c.getBlob(name, false, -1, false, g.None[int64]())
 	return
 }
 

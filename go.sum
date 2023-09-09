@@ -38,6 +38,8 @@ github.com/go-llsqlite/adapter v0.0.0-20230905083127-a7568332b3ac h1:JYM7DEMD5W+
 github.com/go-llsqlite/adapter v0.0.0-20230905083127-a7568332b3ac/go.mod h1:kyfY1RB62UhX0Cyh902kGhiHVz9+I+i0G6tLAH4DHuw=
 github.com/go-llsqlite/crawshaw v0.0.0-20230904103556-219a9360a2c0 h1:gBgO8x7vT06pP8D3v/IQ38mBnITO8lUDQyTq9nilUaI=
 github.com/go-llsqlite/crawshaw v0.0.0-20230904103556-219a9360a2c0/go.mod h1:Hw0HOqxPMRCkOI87dESIgpdJrRR43OwYN0tbEFyG4OQ=
+github.com/go-llsqlite/crawshaw v0.0.0-20230908140959-2f614f0fc470 h1:EQgZOVORg5KSbCJ5nzwV8n90Yh+Si2KawFL6zKyVazE=
+github.com/go-llsqlite/crawshaw v0.0.0-20230908140959-2f614f0fc470/go.mod h1:Hw0HOqxPMRCkOI87dESIgpdJrRR43OwYN0tbEFyG4OQ=
 github.com/golang/snappy v0.0.0-20180518054509-2e65f85255db/go.mod h1:/XxbfmMg8lxefKM7IXC3fBNl/7bRcc72aCRzEWrmP2Q=
 github.com/google/btree v0.0.0-20180124185431-e89373fe6b4a/go.mod h1:lNA+9X1NB3Zf8V7Ke586lFgjr2dZNuvo3lPJSGZ5JPQ=
 github.com/google/go-cmp v0.5.9 h1:O2Tfq5qg4qc4AmwVlvv0oLiVAGB7enBSJ2x2DqQFi38=

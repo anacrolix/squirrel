@@ -2,16 +2,19 @@ package squirrel
 
 import (
 	"errors"
+	g "github.com/anacrolix/generics"
 	"github.com/go-llsqlite/adapter"
 )
 
 // Wraps a specific sqlite.Blob instance, when we don't want to dive into the cache to refetch blobs.
 type PinnedBlob struct {
-	blob *sqlite.Blob
-	c    *Cache
+	key   string
+	rowid int64
+	blob  *sqlite.Blob
+	c     *Cache
 }
 
-func (pb PinnedBlob) Reopen(name string) error {
+func (pb *PinnedBlob) Reopen(name string) error {
 	pb.c.l.Lock()
 	defer pb.c.l.Unlock()
 	rowid, _, ok, err := rowidForBlob(pb.c.conn, name)
@@ -27,24 +30,41 @@ func (pb PinnedBlob) Reopen(name string) error {
 }
 
 // This is very cheap for this type.
-func (pb PinnedBlob) Length() int64 {
+func (pb *PinnedBlob) Length() int64 {
 	return pb.blob.Size()
 }
 
 // Requires only that we lock the sqlite conn.
-func (pb PinnedBlob) ReadAt(b []byte, off int64) (int, error) {
+func (pb *PinnedBlob) ReadAt(b []byte, off int64) (n int, err error) {
 	pb.c.l.Lock()
 	defer pb.c.l.Unlock()
-	return blobReadAt(pb.blob, b, off)
+	for {
+		n, err = blobReadAt(pb.blob, b, off)
+		if !isReopenBlobError(err) {
+			return
+		}
+		pb.blob.Close()
+		delete(pb.c.blobs, pb.key)
+		pb.blob, pb.rowid, err = pb.c.getBlob(pb.key, false, -1, false, g.Some(pb.rowid))
+		if err != nil {
+			panic(err)
+		}
+		b = b[n:]
+		off += int64(n)
+	}
 }
 
-func (pb PinnedBlob) Close() error {
+func (pb *PinnedBlob) Close() error {
 	if pb.c.reclaimsBlobs() {
 		return nil
 	}
 	return pb.blob.Close()
 }
 
-func (pb PinnedBlob) WriteAt(b []byte, off int64) (int, error) {
+func (pb *PinnedBlob) WriteAt(b []byte, off int64) (int, error) {
 	return blobWriteAt(pb.blob, b, off)
+}
+
+func isReopenBlobError(err error) bool {
+	return errors.Is(err, sqlite.ErrBlobClosed) || sqlite.IsResultCode(err, sqlite.ResultCodeAbort)
 }

@@ -3,6 +3,7 @@ package squirrel
 import (
 	"errors"
 	"fmt"
+	g "github.com/anacrolix/generics"
 	"io/fs"
 	"runtime"
 	"strings"
@@ -17,8 +18,8 @@ type Blob struct {
 	cache  *Cache
 }
 
-func (p Blob) getBlob(create, clobberLength bool) (*sqlite.Blob, error) {
-	return p.cache.getBlob(p.name, create, p.length, clobberLength)
+func (p Blob) getBlob(create, clobberLength bool) (*sqlite.Blob, rowid, error) {
+	return p.cache.getBlob(p.name, create, p.length, clobberLength, g.None[int64]())
 }
 
 // In the crawshaw implementation, this was an isolated error message value. In zombiezen, it's
@@ -42,7 +43,7 @@ func (p Blob) doWithBlob(
 		defer p.forgetBlob()
 	}
 	// log.Printf("getting blob")
-	blob, err := p.getBlob(create, clobberLength)
+	blob, _, err := p.getBlob(create, clobberLength)
 	if err != nil {
 		err = fmt.Errorf("getting sqlite blob: %w", err)
 		return
@@ -64,7 +65,7 @@ func (p Blob) doWithBlob(
 	p.forgetBlob()
 	// Try again, this time we're guaranteed to get a fresh blob, and so errors are no excuse. It
 	// might be possible to skip to this version if we don't cache blobs.
-	blob, err = p.getBlob(create, clobberLength)
+	blob, _, err = p.getBlob(create, clobberLength)
 	if err != nil {
 		err = fmt.Errorf("getting blob: %w", err)
 		return
@@ -116,34 +117,65 @@ func (p Blob) GetTag(name string, result func(stmt SqliteStmt)) (err error) {
 	}, p.name, name)
 }
 
-func (c *Cache) getBlob(name string, create bool, length int64, clobberLength bool) (_ *sqlite.Blob, err error) {
+func (c *Cache) openBlob(rowid int64) (*sqlite.Blob, error) {
+	return c.conn.OpenBlob("main", "blob_data", "data", rowid, true)
+}
+
+func (c *Cache) getBlob(
+	name string,
+	create bool,
+	length int64,
+	clobberLength bool,
+	rowidHint g.Option[int64],
+) (blob *sqlite.Blob, rowid rowid, err error) {
 	blob, ok := c.blobs[name]
 	if ok {
 		if !clobberLength || length == blob.Size() {
-			return blob, nil
+			return
 		}
 		blob.Close()
-		delete(c.blobs, name)
 	}
-	rowid, existingLength, ok, err := rowidForBlob(c.conn, name)
-	// log.Printf("got rowid %v, existing length %v, ok %v", rowid, existingLength, ok)
-	if err != nil {
-		return nil, fmt.Errorf("getting rowid for blob: %w", err)
-	}
-	if !ok && !create {
-		return nil, fs.ErrNotExist
-	}
-	if !ok || (clobberLength && existingLength != length) {
-		rowid, err = createBlob(c.conn, name, length, ok && clobberLength && length != existingLength)
-		if err != nil {
-			err = fmt.Errorf("creating blob: %w", err)
-			return nil, err
+	if rowidHint.Ok {
+		blob, err = c.openBlob(rowidHint.Value)
+		if err == nil {
+			rowid = rowidHint.Value
+		} else if sqlite.IsResultCode(err, sqlite.ResultCodeGenericError) {
+			err = nil
+			blob = nil
+		} else {
+			panic(err)
 		}
 	}
-	blob, err = c.conn.OpenBlob("main", "blob_data", "data", rowid, true)
-	if err != nil {
-		panic(err)
+	if blob == nil {
+		var existingLength int64
+		var ok bool
+		rowid, existingLength, ok, err = rowidForBlob(c.conn, name)
+		// log.Printf("got rowid %v, existing length %v, ok %v", rowid, existingLength, ok)
+		if err != nil {
+			err = fmt.Errorf("getting rowid for blob: %w", err)
+			return
+		}
+		if !ok && !create {
+			err = fs.ErrNotExist
+			return
+		}
+		if !ok || (clobberLength && existingLength != length) {
+			rowid, err = createBlob(c.conn, name, length, ok && clobberLength && length != existingLength)
+			if err != nil {
+				err = fmt.Errorf("creating blob: %w", err)
+				return
+			}
+		}
+		blob, err = c.openBlob(rowid)
+		if err != nil {
+			panic(err)
+		}
 	}
+	c.registerBlob(name, blob)
+	return blob, rowid, nil
+}
+
+func (c *Cache) registerBlob(name string, blob *sqlite.Blob) {
 	if c.opts.GcBlobs {
 		herp := new(byte)
 		runtime.SetFinalizer(herp, func(*byte) {
@@ -158,7 +190,6 @@ func (c *Cache) getBlob(name string, create bool, length int64, clobberLength bo
 	if !c.opts.NoCacheBlobs {
 		c.blobs[name] = blob
 	}
-	return blob, nil
 }
 
 func (b Blob) Delete() {
