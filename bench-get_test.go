@@ -46,7 +46,7 @@ func benchCacheGets(cache *Cache, b *testing.B) {
 		}
 	})
 	b.Run("HitFullTransaction", func(b *testing.B) {
-		err := cache.Tx(func(tx *Tx) bool {
+		err := cache.Tx(func(tx *Tx) error {
 			for i := 0; i < b.N; i++ {
 				var buf [6]byte
 				n, err := tx.ReadFull(key, buf[:])
@@ -58,7 +58,7 @@ func benchCacheGets(cache *Cache, b *testing.B) {
 					b.Fatal(err)
 				}
 			}
-			return false
+			return nil
 		})
 		if err != nil {
 			b.Fatalf("error in transaction: %v", err)

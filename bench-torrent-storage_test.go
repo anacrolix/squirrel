@@ -234,9 +234,8 @@ func benchmarkTorrentStorageVaryingChunksPiecesTransactions(
 			) (err error) {
 				err = errors.Join(
 					cache.Tx(
-						func(tx *Tx) bool {
-							err = readAndHashSeparateChunks(tx, key, offIter, pieceSize, buf, hash)
-							return true
+						func(tx *Tx) error {
+							return readAndHashSeparateChunks(tx, key, offIter, pieceSize, buf, hash)
 						}),
 					err)
 				return

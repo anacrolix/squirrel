@@ -68,14 +68,14 @@ func BenchmarkTransaction(b *testing.B) {
 			return cache.Put(defaultKey, defaultValue)
 		},
 		func(cache *Cache) error {
-			return cache.Tx(func(tx *Tx) bool {
+			return cache.Tx(func(tx *Tx) error {
 				for i := 0; i < b.N; i++ {
 					err := tx.Put(defaultKey, defaultValue)
 					if err != nil {
 						b.Fatal(err)
 					}
 				}
-				return true
+				return nil
 			})
 		})
 }

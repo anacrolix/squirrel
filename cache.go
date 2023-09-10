@@ -123,9 +123,8 @@ func (c *Cache) OpenWithLength(name string, length int64) Blob {
 }
 
 func (c *Cache) Put(name string, b []byte) (err error) {
-	txErr := c.Tx(func(tx *Tx) bool {
-		err = tx.Put(name, b)
-		return err == nil
+	txErr := c.Tx(func(tx *Tx) error {
+		return tx.Put(name, b)
 	})
 	return errors.Join(err, txErr)
 }
@@ -166,7 +165,7 @@ func (c *Cache) ReadFull(key string, b []byte) (n int, err error) {
 	return
 }
 
-func (c *Cache) Tx(f func(tx *Tx) bool) (err error) {
+func (c *Cache) Tx(f func(tx *Tx) error) (err error) {
 	c.l.Lock()
 	defer c.l.Unlock()
 	err = c.getCacheErr()
@@ -177,11 +176,11 @@ func (c *Cache) Tx(f func(tx *Tx) bool) (err error) {
 	if err != nil {
 		return
 	}
-	commit := f(&c.tx)
-	if commit {
+	err = f(&c.tx)
+	if err == nil {
 		err = sqlitex.Exec(c.conn, "commit", nil)
 	} else {
-		err = sqlitex.Exec(c.conn, "rollback", nil)
+		err = errors.Join(err, sqlitex.Exec(c.conn, "rollback", nil))
 	}
 	return
 }
@@ -193,10 +192,8 @@ func (c *Cache) SetTag(key, name string, value interface{}) (err error) {
 }
 
 func (c *Cache) wrapTxMethod(txCall func(tx *Tx) error) error {
-	var methodErr error
-	txErr := c.Tx(func(tx *Tx) bool {
-		methodErr = txCall(tx)
-		return methodErr == nil
+	return c.Tx(func(tx *Tx) error {
+		return txCall(tx)
 	})
-	return errors.Join(txErr, methodErr)
+}
 }
