@@ -103,10 +103,18 @@ func (c *Cache) OpenPinned(name string) (ret *PinnedBlob, err error) {
 }
 
 // Defines a Blob with the given name and length. Nothing is actually written or checked in the DB.
+func (c *Cache) NewBlobRef(name string) Blob {
+	return Blob{
+		name:  name,
+		cache: c,
+	}
+}
+
+// Defines a Blob with the given name and length. Nothing is actually written or checked in the DB.
 func (c *Cache) BlobWithLength(name string, length int64) Blob {
 	return Blob{
 		name:   name,
-		length: length,
+		length: g.Some(length),
 		cache:  c,
 	}
 }

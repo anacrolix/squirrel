@@ -12,20 +12,19 @@ import (
 // should not be when inside a Tx.
 type Blob struct {
 	name   string
-	length int64
+	length g.Option[int64]
 	cache  *Cache
 }
 
-func (p Blob) getBlob(create, clobberLength bool) (*sqlite.Blob, rowid, error) {
-	return p.cache.getBlob(p.name, create, p.length, clobberLength, g.None[int64]())
+func (p Blob) getBlob(write bool) (*sqlite.Blob, rowid, error) {
+	return p.cache.getBlob(p.name, write, p.length.UnwrapOr(-1), false, g.None[int64]())
 }
 
 func (p Blob) doWithBlob(
 	withBlob func(*sqlite.Blob) error,
 	create bool,
-	clobberLength bool,
 ) (err error) {
-	blob, _, err := p.getBlob(create, clobberLength)
+	blob, _, err := p.getBlob(create)
 	if err != nil {
 		err = fmt.Errorf("getting sqlite blob: %w", err)
 		return
@@ -39,7 +38,7 @@ func (p Blob) ReadAt(b []byte, off int64) (n int, err error) {
 		return p.doWithBlob(func(blob *sqlite.Blob) (err error) {
 			n, err = blobReadAt(blob, b, off)
 			return
-		}, false, false)
+		}, false)
 	})
 	return
 }
@@ -49,7 +48,7 @@ func (p Blob) WriteAt(b []byte, off int64) (n int, err error) {
 		return p.doWithBlob(func(blob *sqlite.Blob) (err error) {
 			n, err = blobWriteAt(blob, b, off)
 			return
-		}, true, false)
+		}, true)
 	})
 	return
 }
@@ -69,10 +68,20 @@ func (p Blob) GetTag(name string, result func(stmt SqliteStmt)) error {
 	})
 }
 
-func (b Blob) Delete() {
-	b.cache.Tx(func(tx *Tx) error {
+func (b Blob) Delete() error {
+	return b.cache.Tx(func(tx *Tx) error {
 		return sqlitex.Execute(b.cache.conn, "delete from blob where name=?", &sqlitex.ExecOptions{
 			Args: []interface{}{b.name},
 		})
 	})
+}
+
+func (b Blob) Size() (l int64, err error) {
+	err = b.cache.Tx(func(tx *Tx) error {
+		return b.doWithBlob(func(blob *sqlite.Blob) error {
+			l = blob.Size()
+			return nil
+		}, true)
+	})
+	return
 }
