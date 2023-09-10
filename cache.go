@@ -2,12 +2,12 @@ package squirrel
 
 import (
 	"errors"
+	"fmt"
 	g "github.com/anacrolix/generics"
-	"sync"
-	"time"
-
 	sqlite "github.com/go-llsqlite/adapter"
 	"github.com/go-llsqlite/adapter/sqlitex"
+	"io/fs"
+	"sync"
 )
 
 type NewCacheOpts struct {
@@ -33,9 +33,8 @@ func NewCache(opts NewCacheOpts) (_ *Cache, err error) {
 		return
 	}
 	cl := &Cache{
-		conn:  conn,
-		blobs: make(map[string]*sqlite.Blob),
-		opts:  opts,
+		conn: conn,
+		opts: opts,
 	}
 	cl.tx.c = cl
 	return cl, nil
@@ -59,13 +58,11 @@ func (cl *Cache) GetCapacity() (ret int64, ok bool) {
 }
 
 type Cache struct {
-	l           sync.Mutex
-	conn        conn
-	blobs       map[string]*sqlite.Blob
-	blobFlusher *time.Timer
-	opts        NewCacheOpts
-	closed      bool
-	tx          Tx
+	l      sync.Mutex
+	conn   conn
+	opts   NewCacheOpts
+	closed bool
+	tx     Tx
 }
 
 func (c *Cache) getCacheErr() error {
@@ -78,9 +75,6 @@ func (c *Cache) getCacheErr() error {
 func (c *Cache) Close() (err error) {
 	c.l.Lock()
 	defer c.l.Unlock()
-	if c.blobFlusher != nil {
-		c.blobFlusher.Stop()
-	}
 	if !c.closed {
 		c.closed = true
 		err = c.conn.Close()
@@ -196,4 +190,53 @@ func (c *Cache) wrapTxMethod(txCall func(tx *Tx) error) error {
 		return txCall(tx)
 	})
 }
+
+func (c *Cache) openBlob(rowid int64) (*sqlite.Blob, error) {
+	return c.conn.OpenBlob("main", "blob_data", "data", rowid, true)
+}
+
+func (c *Cache) getBlob(
+	name string,
+	create bool,
+	length int64,
+	clobberLength bool,
+	rowidHint g.Option[int64],
+) (blob *sqlite.Blob, rowid rowid, err error) {
+	if rowidHint.Ok {
+		blob, err = c.openBlob(rowidHint.Value)
+		if err == nil {
+			rowid = rowidHint.Value
+		} else if sqlite.IsResultCode(err, sqlite.ResultCodeGenericError) {
+			err = nil
+			blob = nil
+		} else {
+			panic(err)
+		}
+	}
+	if blob == nil {
+		var existingLength int64
+		var ok bool
+		rowid, existingLength, ok, err = rowidForBlob(c.conn, name)
+		// log.Printf("got rowid %v, existing length %v, ok %v", rowid, existingLength, ok)
+		if err != nil {
+			err = fmt.Errorf("getting rowid for blob: %w", err)
+			return
+		}
+		if !ok && !create {
+			err = fs.ErrNotExist
+			return
+		}
+		if !ok || (clobberLength && existingLength != length) {
+			rowid, err = createBlob(c.conn, name, length, ok && clobberLength && length != existingLength)
+			if err != nil {
+				err = fmt.Errorf("creating blob: %w", err)
+				return
+			}
+		}
+		blob, err = c.openBlob(rowid)
+		if err != nil {
+			panic(err)
+		}
+	}
+	return blob, rowid, nil
 }

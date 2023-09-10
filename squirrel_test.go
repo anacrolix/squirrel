@@ -13,10 +13,6 @@ import (
 	"testing"
 )
 
-//func init() {
-//	log.SetFlags(log.Flags() | log.Lshortfile)
-//}
-
 func errorIs(target error) func(error) bool {
 	return func(err error) bool {
 		return errors.Is(err, target)

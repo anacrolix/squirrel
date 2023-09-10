@@ -61,7 +61,6 @@ func (pb *PinnedBlob) doIoAt(
 			return
 		}
 		pb.blob.Close()
-		delete(pb.c.blobs, pb.key)
 		pb.blob, pb.rowid, err = pb.c.getBlob(pb.key, false, -1, false, g.Some(pb.rowid))
 		if err != nil {
 			panic(err)

@@ -117,15 +117,15 @@ func writeChunksSeparately(cache *Cache, key []byte, off uint32, b []byte, piece
 }
 
 func writeToOneBigPiece(cache *Cache, key []byte, off uint32, b []byte, pieceSize uint32) error {
-	blob := cache.BlobWithLength(string(key), int64(pieceSize))
-	n, err := blob.WriteAt(b, int64(off))
-	if err != nil {
-		panic(err)
-	}
-	if n != len(b) {
-		panic(n)
-	}
-	return err
+	return cache.Tx(func(tx *Tx) (err error) {
+		blob, err := tx.Create(string(key), CreateOpts{Length: int64(pieceSize)})
+		if err != nil {
+			return
+		}
+		defer blob.Close()
+		_, err = blob.WriteAt(b, int64(off))
+		return
+	})
 }
 
 func readAndHashSeparateChunks[C Cacher](
