@@ -42,7 +42,6 @@ func (p Blob) doWithBlob(
 	if p.cache.opts.NoCacheBlobs {
 		defer p.forgetBlob()
 	}
-	// log.Printf("getting blob")
 	blob, _, err := p.getBlob(create, clobberLength)
 	if err != nil {
 		err = fmt.Errorf("getting sqlite blob: %w", err)

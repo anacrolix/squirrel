@@ -36,10 +36,27 @@ func (pb *PinnedBlob) Length() int64 {
 
 // Requires only that we lock the sqlite conn.
 func (pb *PinnedBlob) ReadAt(b []byte, off int64) (n int, err error) {
+	return pb.doIoAt(blobReadAt, b, off)
+}
+
+func (pb *PinnedBlob) WriteAt(b []byte, off int64) (int, error) {
+	return pb.doIoAt(blobWriteAt, b, off)
+}
+
+func (pb *PinnedBlob) doIoAt(
+	// Naming inspired by sqlite3 internals
+	xCall func(*sqlite.Blob, []byte, int64) (int, error),
+	b []byte,
+	off int64,
+) (n int, err error) {
 	pb.c.l.Lock()
 	defer pb.c.l.Unlock()
 	for {
-		n, err = blobReadAt(pb.blob, b, off)
+		n, err = xCall(pb.blob, b, off)
+		if err == nil {
+			_, err = pb.c.accessBlob(pb.key)
+			return
+		}
 		if !isReopenBlobError(err) {
 			return
 		}
@@ -54,17 +71,13 @@ func (pb *PinnedBlob) ReadAt(b []byte, off int64) (n int, err error) {
 	}
 }
 
+func isReopenBlobError(err error) bool {
+	return errors.Is(err, sqlite.ErrBlobClosed) || sqlite.IsResultCode(err, sqlite.ResultCodeAbort)
+}
+
 func (pb *PinnedBlob) Close() error {
 	if pb.c.reclaimsBlobs() {
 		return nil
 	}
 	return pb.blob.Close()
-}
-
-func (pb *PinnedBlob) WriteAt(b []byte, off int64) (int, error) {
-	return blobWriteAt(pb.blob, b, off)
-}
-
-func isReopenBlobError(err error) bool {
-	return errors.Is(err, sqlite.ErrBlobClosed) || sqlite.IsResultCode(err, sqlite.ResultCodeAbort)
 }

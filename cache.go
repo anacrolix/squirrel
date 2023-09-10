@@ -173,26 +173,24 @@ func (c *Cache) Put(name string, b []byte) error {
 		cache:  c,
 	}.doWithBlob(func(blob *sqlite.Blob) error {
 		_, err := blobWriteAt(blob, b, 0)
-		// log.Printf("wrote %v bytes", n)
 		return err
 	}, true, true)
 }
 
 var ErrNotFound = errors.New("not found")
 
-func (c *Cache) ReadFull(key string, b []byte) (n int, err error) {
-	c.l.Lock()
-	defer c.l.Unlock()
-	ok := false
+func (c *Cache) accessBlob(key string) (dataId rowid, err error) {
+	var blobDataId setOnce[rowid]
 	err = sqlitex.Exec(
-		c.conn,
-		`select data from blob join blob_data using (data_id) where name=?`,
+		c.conn, `
+		update blob
+			set 
+		    	last_used=datetime('now', 'subsec'),
+		    	access_count=access_count+1
+			where name=?
+			returning data_id`,
 		func(stmt *sqlite.Stmt) error {
-			if ok {
-				panic("duplicate rows for key")
-			}
-			n = stmt.ColumnBytes(0, b)
-			ok = true
+			blobDataId.Set(stmt.ColumnInt64(0))
 			return nil
 		},
 		key,
@@ -200,9 +198,29 @@ func (c *Cache) ReadFull(key string, b []byte) (n int, err error) {
 	if err != nil {
 		return
 	}
-	if !ok {
+	if !blobDataId.Ok() {
 		err = ErrNotFound
 	}
+	dataId = blobDataId.value
+	return
+}
+
+func (c *Cache) ReadFull(key string, b []byte) (n int, err error) {
+	c.l.Lock()
+	defer c.l.Unlock()
+	blobDataId, err := c.accessBlob(key)
+	if err != nil {
+		return
+	}
+	err = sqlitex.Exec(
+		c.conn,
+		`select data from blob_data where data_id=?`,
+		func(stmt *sqlite.Stmt) error {
+			n = stmt.ColumnBytes(0, b)
+			return nil
+		},
+		blobDataId,
+	)
 	return
 }
 

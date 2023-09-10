@@ -1,6 +1,8 @@
 create table if not exists blob (
     name text primary key,
-    last_used timestamp default (datetime('now')),
+    store_time timestamp not null default (unixepoch('now', 'subsec')),
+    last_used timestamp default (unixepoch('now', 'subsec')),
+    access_count integer not null default 0,
     data_id integer not null references blob_data(data_id) on delete cascade
 );
 
@@ -14,7 +16,7 @@ create table if not exists blob_meta (
     value
 ) without rowid;
 
-create index if not exists blob_last_used on blob(last_used, data_id);
+create index if not exists blob_last_used on blob(last_used, access_count, data_id);
 
 -- While sqlite *seems* to be faster to get sum(length(data)) instead of
 -- sum(length(data)), it may still require a large table scan at start-up or with a
@@ -47,7 +49,7 @@ with recursive excess (
             last_used,
             data_id,
             length(data)
-        from blob join blob_data using (data_id) order by last_used, data_id limit 1
+        from blob join blob_data using (data_id) order by last_used, access_count, data_id limit 1
     )
     where usage_with > (select value from setting where name='capacity')
     union all
