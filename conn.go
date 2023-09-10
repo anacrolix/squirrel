@@ -117,7 +117,7 @@ func newOpenUri(opts NewConnOpts) string {
 		path = ":memory:"
 	}
 	values := make(url.Values)
-	if opts.NoConcurrentBlobReads || opts.Memory {
+	if opts.Memory {
 		values.Add("cache", "shared")
 	}
 	// This still seems to use temporary databases as expected when there's just ?, so no need to

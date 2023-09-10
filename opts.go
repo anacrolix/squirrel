@@ -32,7 +32,4 @@ type NewConnOpts struct {
 	// automatically deleted as soon as the database connection is closed."
 	Path   string
 	Memory bool
-	// Whether multiple blobs will not be read simultaneously. Enables journal mode other than WAL,
-	// and NumConns < 2.
-	NoConcurrentBlobReads bool
 }
