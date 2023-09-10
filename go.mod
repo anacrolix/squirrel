@@ -6,16 +6,16 @@ require (
 	github.com/alexflint/go-arg v1.4.3
 	github.com/anacrolix/envpprof v1.3.0
 	github.com/anacrolix/generics v0.0.0-20230816105729-c755655aee45
+	github.com/anacrolix/log v0.14.3-0.20230823030427-4b296d71a6b4
 	github.com/frankban/quicktest v1.14.4
-	github.com/go-llsqlite/adapter v0.0.0-20230905083127-a7568332b3ac
+	github.com/go-llsqlite/adapter v0.0.0-20230910110622-f955011c1e41
 	golang.org/x/sync v0.3.0
 )
 
 require (
 	github.com/alexflint/go-scalar v1.1.0 // indirect
-	github.com/anacrolix/log v0.14.3-0.20230823030427-4b296d71a6b4 // indirect
 	github.com/dustin/go-humanize v1.0.0 // indirect
-	github.com/go-llsqlite/crawshaw v0.0.0-20230908140959-2f614f0fc470 // indirect
+	github.com/go-llsqlite/crawshaw v0.0.0-20230910110433-7e901377eb6c // indirect
 	github.com/google/go-cmp v0.5.9 // indirect
 	github.com/google/uuid v1.3.0 // indirect
 	github.com/kr/pretty v0.3.1 // indirect
