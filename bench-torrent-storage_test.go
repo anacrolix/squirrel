@@ -128,8 +128,8 @@ func writeToOneBigPiece(cache *Cache, key []byte, off uint32, b []byte, pieceSiz
 	return err
 }
 
-func readAndHashSeparateChunks(
-	cache *Cache,
+func readAndHashSeparateChunks[C Cacher](
+	cache C,
 	key []byte,
 	offIter offIterFunc,
 	pieceSize int,
@@ -185,14 +185,6 @@ func BenchmarkTorrentStorage(b *testing.B) {
 			benchmarkTorrentStorageVaryingChunksPiecesTransactions(b, opts)
 		},
 		[]nestedBench{
-			{"NoBlobCaching", func(opts *NewCacheOpts) {
-				opts.NoCacheBlobs = true
-			}},
-			{"BlobCaching", func(opts *NewCacheOpts) {
-				opts.NoCacheBlobs = false
-			}},
-		},
-		[]nestedBench{
 			{"Wal", func(opts *NewCacheOpts) {
 				opts.SetJournalMode = "wal"
 			}},
@@ -228,9 +220,6 @@ func benchmarkTorrentStorageVaryingChunksPiecesTransactions(
 	})
 	b.Run("IndividualChunksTransaction", func(b *testing.B) {
 		cacheOpts := newCacheOpts()
-		if !cacheOpts.NoCacheBlobs {
-			b.Skip("can't use transactions with cached blobs")
-		}
 		benchmarkTorrentStorage(
 			b,
 			cacheOpts,
@@ -245,8 +234,8 @@ func benchmarkTorrentStorageVaryingChunksPiecesTransactions(
 			) (err error) {
 				err = errors.Join(
 					cache.Tx(
-						func() bool {
-							err = readAndHashSeparateChunks(cache, key, offIter, pieceSize, buf, hash)
+						func(tx *Tx) bool {
+							err = readAndHashSeparateChunks(tx, key, offIter, pieceSize, buf, hash)
 							return true
 						}),
 					err)

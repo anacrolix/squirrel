@@ -46,10 +46,10 @@ func benchCacheGets(cache *Cache, b *testing.B) {
 		}
 	})
 	b.Run("HitFullTransaction", func(b *testing.B) {
-		err := cache.Tx(func() bool {
+		err := cache.Tx(func(tx *Tx) bool {
 			for i := 0; i < b.N; i++ {
 				var buf [6]byte
-				n, err := cache.ReadFull(key, buf[:])
+				n, err := tx.ReadFull(key, buf[:])
 				if err != nil {
 					b.Fatalf("got error reading value from blob on iteration %v: %v", i, err)
 				}
@@ -66,18 +66,9 @@ func benchCacheGets(cache *Cache, b *testing.B) {
 	})
 }
 
-func BenchmarkNoCacheBlobs(b *testing.B) {
-	c := qt.New(b)
-	cacheOpts := NewCacheOpts{NoCacheBlobs: true, NoFlushBlobs: true}
-	//cacheOpts.Path = "here.db"
-	cache := newCache(c, cacheOpts)
-	benchCacheGets(cache, b)
-}
-
 func BenchmarkCacheDefaults(b *testing.B) {
 	c := qt.New(b)
-	cacheOpts := NewCacheOpts{NoFlushBlobs: true}
-	//cacheOpts.Path = "here.db"
+	cacheOpts := defaultCacheOpts(b)
 	cache := newCache(c, cacheOpts)
 	benchCacheGets(cache, b)
 }
@@ -126,16 +117,6 @@ func BenchmarkReadAtEndOfBlob(b *testing.B) {
 			opts.RequireAutoVacuum = g.Some[any](1)
 		}},
 	}
-	blobCachings := []nestedBench{
-		{"NoBlobCaching", func(opts *NewCacheOpts) {
-			opts.NoCacheBlobs = true
-		}},
-		{"BlobCaching", func(opts *NewCacheOpts) {
-			opts.NoCacheBlobs = false
-			// The single blob might be flushed by default.
-			opts.NoFlushBlobs = true
-		}},
-	}
 	startNestedBenchmark(b,
 		func(b testing.TB) NewCacheOpts {
 			cacheOpts := defaultCacheOpts(b)
@@ -147,7 +128,7 @@ func BenchmarkReadAtEndOfBlob(b *testing.B) {
 		func(b *testing.B, opts func() NewCacheOpts) {
 			benchmarkReadAtEndOfBlob(b, 4<<20, 4<<10, opts())
 		},
-		blobCachings, autoVacuums)
+		autoVacuums)
 }
 
 type nestedBench struct {

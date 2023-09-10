@@ -14,10 +14,6 @@ type NewCacheOpts struct {
 	NewConnOpts
 	InitDbOpts
 	InitConnOpts
-	GcBlobs           bool
-	NoCacheBlobs      bool
-	BlobFlushInterval time.Duration
-	NoFlushBlobs      bool
 }
 
 func NewCache(opts NewCacheOpts) (_ *Cache, err error) {
@@ -36,22 +32,12 @@ func NewCache(opts NewCacheOpts) (_ *Cache, err error) {
 		conn.Close()
 		return
 	}
-	if opts.BlobFlushInterval == 0 {
-		// This is influenced by typical busy timeouts, of 5-10s. We want to give other connections
-		// a few chances at getting a transaction through.
-		opts.BlobFlushInterval = time.Second
-	}
 	cl := &Cache{
 		conn:  conn,
 		blobs: make(map[string]*sqlite.Blob),
 		opts:  opts,
 	}
-	// Avoid race with cl.blobFlusherFunc
-	cl.l.Lock()
-	defer cl.l.Unlock()
-	if !opts.NoFlushBlobs && !opts.GcBlobs {
-		cl.blobFlusher = time.AfterFunc(opts.BlobFlushInterval, cl.blobFlusherFunc)
-	}
+	cl.tx.c = cl
 	return cl, nil
 }
 
@@ -79,10 +65,7 @@ type Cache struct {
 	blobFlusher *time.Timer
 	opts        NewCacheOpts
 	closed      bool
-}
-
-func (c *Cache) reclaimsBlobs() bool {
-	return !c.opts.NoCacheBlobs
+	tx          Tx
 }
 
 func (c *Cache) getCacheErr() error {
@@ -92,27 +75,9 @@ func (c *Cache) getCacheErr() error {
 	return nil
 }
 
-func (c *Cache) blobFlusherFunc() {
-	c.l.Lock()
-	defer c.l.Unlock()
-	c.flushBlobs()
-	if !c.closed {
-		c.blobFlusher.Reset(c.opts.BlobFlushInterval)
-	}
-}
-
-func (c *Cache) flushBlobs() {
-	for key, b := range c.blobs {
-		// Need the lock to prevent racing with the GC finalizers.
-		b.Close()
-		delete(c.blobs, key)
-	}
-}
-
 func (c *Cache) Close() (err error) {
 	c.l.Lock()
 	defer c.l.Unlock()
-	c.flushBlobs()
 	if c.blobFlusher != nil {
 		c.blobFlusher.Stop()
 	}
@@ -122,15 +87,6 @@ func (c *Cache) Close() (err error) {
 		c.conn = nil
 	}
 	return
-}
-
-// Returns an existing blob only.
-func (c *Cache) Open(name string) (ret *PinnedBlob, err error) {
-	if !c.reclaimsBlobs() {
-		err = errors.New("you must call OpenPinned if blob caching is disabled")
-		return
-	}
-	return c.OpenPinned(name)
 }
 
 // Returns a PinnedBlob. The item must already exist. You must call PinnedBlob.Release when done
@@ -166,15 +122,12 @@ func (c *Cache) OpenWithLength(name string, length int64) Blob {
 	return c.BlobWithLength(name, length)
 }
 
-func (c *Cache) Put(name string, b []byte) error {
-	return Blob{
-		name:   name,
-		length: int64(len(b)),
-		cache:  c,
-	}.doWithBlob(func(blob *sqlite.Blob) error {
-		_, err := blobWriteAt(blob, b, 0)
-		return err
-	}, true, true)
+func (c *Cache) Put(name string, b []byte) (err error) {
+	txErr := c.Tx(func(tx *Tx) bool {
+		err = tx.Put(name, b)
+		return err == nil
+	})
+	return errors.Join(err, txErr)
 }
 
 var ErrNotFound = errors.New("not found")
@@ -206,30 +159,25 @@ func (c *Cache) accessBlob(key string) (dataId rowid, err error) {
 }
 
 func (c *Cache) ReadFull(key string, b []byte) (n int, err error) {
-	c.l.Lock()
-	defer c.l.Unlock()
-	blobDataId, err := c.accessBlob(key)
-	if err != nil {
-		return
-	}
-	err = sqlitex.Exec(
-		c.conn,
-		`select data from blob_data where data_id=?`,
-		func(stmt *sqlite.Stmt) error {
-			n = stmt.ColumnBytes(0, b)
-			return nil
-		},
-		blobDataId,
-	)
+	err = c.wrapTxMethod(func(tx *Tx) error {
+		n, err = tx.ReadFull(key, b)
+		return err
+	})
 	return
 }
 
-func (c *Cache) Tx(f func() bool) (err error) {
+func (c *Cache) Tx(f func(tx *Tx) bool) (err error) {
+	c.l.Lock()
+	defer c.l.Unlock()
+	err = c.getCacheErr()
+	if err != nil {
+		return
+	}
 	err = sqlitex.Exec(c.conn, "begin immediate", nil)
 	if err != nil {
 		return
 	}
-	commit := f()
+	commit := f(&c.tx)
 	if commit {
 		err = sqlitex.Exec(c.conn, "commit", nil)
 	} else {
@@ -239,18 +187,16 @@ func (c *Cache) Tx(f func() bool) (err error) {
 }
 
 func (c *Cache) SetTag(key, name string, value interface{}) (err error) {
-	c.l.Lock()
-	defer c.l.Unlock()
-	err = c.getCacheErr()
-	if err != nil {
-		return
-	}
-	return sqlitex.Exec(
-		c.conn,
-		"insert or replace into tag (blob_name, tag_name, value) values (?, ?, ?)",
-		nil,
-		key,
-		name,
-		value,
-	)
+	return c.wrapTxMethod(func(tx *Tx) error {
+		return tx.SetTag(key, name, value)
+	})
+}
+
+func (c *Cache) wrapTxMethod(txCall func(tx *Tx) error) error {
+	var methodErr error
+	txErr := c.Tx(func(tx *Tx) bool {
+		methodErr = txCall(tx)
+		return methodErr == nil
+	})
+	return errors.Join(txErr, methodErr)
 }

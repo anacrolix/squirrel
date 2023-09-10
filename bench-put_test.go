@@ -23,11 +23,6 @@ func BenchmarkPutSmallItem(b *testing.B) {
 		defaultCacheOpts,
 		benchmarkPutSmallItem,
 		[]nestedBench{
-			{"NoBlobCaching", func(opts *NewCacheOpts) {
-				opts.NoCacheBlobs = true
-			}},
-		},
-		[]nestedBench{
 			{"Wal", func(opts *NewCacheOpts) {
 				opts.SetJournalMode = "wal"
 			}},
@@ -65,18 +60,17 @@ func BenchmarkPutSmallItem(b *testing.B) {
 	)
 }
 
-func BenchmarkPutNoBlobCachingTransaction(b *testing.B) {
+func BenchmarkTransaction(b *testing.B) {
 	cacheOpts := defaultCacheOpts(b)
-	cacheOpts.NoCacheBlobs = true
 	benchCacheWrapLoop(b,
 		cacheOpts,
 		func(cache *Cache) error {
 			return cache.Put(defaultKey, defaultValue)
 		},
 		func(cache *Cache) error {
-			return cache.Tx(func() bool {
+			return cache.Tx(func(tx *Tx) bool {
 				for i := 0; i < b.N; i++ {
-					err := cache.Put(defaultKey, defaultValue)
+					err := tx.Put(defaultKey, defaultValue)
 					if err != nil {
 						b.Fatal(err)
 					}

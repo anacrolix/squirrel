@@ -5,7 +5,6 @@ import (
 	"fmt"
 	g "github.com/anacrolix/generics"
 	"io/fs"
-	"runtime"
 	"strings"
 
 	sqlite "github.com/go-llsqlite/adapter"
@@ -33,46 +32,23 @@ func (p Blob) doWithBlob(
 	create bool,
 	clobberLength bool,
 ) (err error) {
-	p.cache.l.Lock()
-	defer p.cache.l.Unlock()
-	err = p.cache.getCacheErr()
-	if err != nil {
-		return
-	}
-	if p.cache.opts.NoCacheBlobs {
-		defer p.forgetBlob()
-	}
+	defer p.forgetBlob()
 	blob, _, err := p.getBlob(create, clobberLength)
 	if err != nil {
 		err = fmt.Errorf("getting sqlite blob: %w", err)
 		return
 	}
 	err = withBlob(blob)
-	if p.cache.opts.NoCacheBlobs {
-		return errors.Join(err, blob.Close())
-	}
-	if err == nil {
-		return
-	}
-	src := sqlite.ErrCode(err)
-	// "ABORT" occurs if the row the blob is on is modified elsewhere. "ERROR: invalid blob" occurs
-	// if the blob has been closed. We don't forget blobs that are closed by our GC finalizers,
-	// because they may be attached to names that have since moved on to another blob.
-	if src != sqlite.ResultCodeAbort && !(p.cache.opts.GcBlobs && src == sqlite.ResultCodeGenericError && isErrInvalidBlob(err)) {
-		return
-	}
-	p.forgetBlob()
-	// Try again, this time we're guaranteed to get a fresh blob, and so errors are no excuse. It
-	// might be possible to skip to this version if we don't cache blobs.
-	blob, _, err = p.getBlob(create, clobberLength)
-	if err != nil {
-		err = fmt.Errorf("getting blob: %w", err)
-		return
-	}
-	return withBlob(blob)
+	return errors.Join(err, blob.Close())
 }
 
 func (p Blob) ReadAt(b []byte, off int64) (n int, err error) {
+	p.cache.l.Lock()
+	defer p.cache.l.Unlock()
+	err = p.cache.getCacheErr()
+	if err != nil {
+		return
+	}
 	err = p.doWithBlob(func(blob *sqlite.Blob) (err error) {
 		n, err = blobReadAt(blob, b, off)
 		return
@@ -81,6 +57,12 @@ func (p Blob) ReadAt(b []byte, off int64) (n int, err error) {
 }
 
 func (p Blob) WriteAt(b []byte, off int64) (n int, err error) {
+	p.cache.l.Lock()
+	defer p.cache.l.Unlock()
+	err = p.cache.getCacheErr()
+	if err != nil {
+		return
+	}
 	err = p.doWithBlob(func(blob *sqlite.Blob) (err error) {
 		n, err = blobWriteAt(blob, b, off)
 		return
@@ -170,25 +152,7 @@ func (c *Cache) getBlob(
 			panic(err)
 		}
 	}
-	c.registerBlob(name, blob)
 	return blob, rowid, nil
-}
-
-func (c *Cache) registerBlob(name string, blob *sqlite.Blob) {
-	if c.opts.GcBlobs {
-		herp := new(byte)
-		runtime.SetFinalizer(herp, func(*byte) {
-			c.l.Lock()
-			defer c.l.Unlock()
-			// Note there's no guarantee that the finalizer fired while this blob is the same
-			// one in the blob cache. It might be possible to rework this so that we check, or
-			// strip finalizers as appropriate.
-			blob.Close()
-		})
-	}
-	if !c.opts.NoCacheBlobs {
-		c.blobs[name] = blob
-	}
 }
 
 func (b Blob) Delete() {

@@ -76,8 +76,5 @@ func isReopenBlobError(err error) bool {
 }
 
 func (pb *PinnedBlob) Close() error {
-	if pb.c.reclaimsBlobs() {
-		return nil
-	}
 	return pb.blob.Close()
 }

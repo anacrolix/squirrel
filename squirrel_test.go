@@ -2,23 +2,20 @@ package squirrel
 
 import (
 	"errors"
-	"io"
-	"io/fs"
-	"log"
-	"os"
-	"path/filepath"
-	"testing"
-
 	_ "github.com/anacrolix/envpprof"
+	"github.com/anacrolix/log"
 	qt "github.com/frankban/quicktest"
 	sqlite "github.com/go-llsqlite/adapter"
 	"github.com/go-llsqlite/adapter/sqlitex"
 	"golang.org/x/sync/errgroup"
+	"io"
+	"io/fs"
+	"testing"
 )
 
-func init() {
-	log.SetFlags(log.Flags() | log.Lshortfile)
-}
+//func init() {
+//	log.SetFlags(log.Flags() | log.Lshortfile)
+//}
 
 func errorIs(target error) func(error) bool {
 	return func(err error) bool {
@@ -29,7 +26,7 @@ func errorIs(target error) func(error) bool {
 func TestBlobWriteOutOfBounds(t *testing.T) {
 	c := qt.New(t)
 	cache := newCache(c, NewCacheOpts{})
-	_, err := cache.Open("greeting")
+	_, err := cache.OpenPinned("greeting")
 	c.Check(err, qt.Satisfies, errorIs(fs.ErrNotExist))
 	b := cache.BlobWithLength("greeting", 6)
 	n, err := b.WriteAt([]byte("hello "), 0)
@@ -80,22 +77,20 @@ func TestTagDeletedWithBlob(t *testing.T) {
 
 func TestConcurrentCreateBlob(t *testing.T) {
 	c := qt.New(t)
-	opts := NewCacheOpts{}
-	tempDir, _ := os.MkdirTemp("", "")
-	opts.Path = filepath.Join(tempDir, "db")
+	opts := defaultCacheOpts(c)
 	opts.Capacity = -1
-	// opts.NoCacheBlobs = true
-	// opts.SetSynchronous = 1
-	// opts.PageSize = 4096
+	logger := log.Default.WithNames("test")
 	t.Logf("shared path: %q", opts.Path)
 	opts.SetJournalMode = "wal"
 	var eg errgroup.Group
 	doPut := func(value string) func() error {
 		cache := newCache(c, opts)
-		t.Logf("opened cache for %q", value)
-		return func() error {
-			t.Logf("putting %q", value)
-			return cache.Put("greeting", []byte(value))
+		logger.Levelf(log.Debug, "opened cache for %q", value)
+		return func() (err error) {
+			logger.Levelf(log.Debug, "putting %q", value)
+			err = cache.Put("greeting", []byte(value))
+			logger.Levelf(log.Debug, "put %q: %v", value, err)
+			return
 		}
 	}
 	allValues := []string{
@@ -111,11 +106,12 @@ func TestConcurrentCreateBlob(t *testing.T) {
 	for _, j := range jobs {
 		eg.Go(j)
 	}
-	c.Check(eg.Wait(), qt.IsNil)
+	c.Assert(eg.Wait(), qt.IsNil)
 	cache := newCache(c, opts)
-	pb, err := cache.Open("greeting")
+	pb, err := cache.OpenPinned("greeting")
 	c.Assert(err, qt.IsNil)
 	b, err := io.ReadAll(io.NewSectionReader(pb, 0, pb.Length()))
+	c.Check(pb.Close(), qt.IsNil)
 	c.Check(err, qt.IsNil)
 	c.Check(allValues, qt.Contains, string(b))
 	conn, err := newConn(opts.NewConnOpts)

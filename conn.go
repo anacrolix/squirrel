@@ -154,6 +154,7 @@ func initDatabase(conn conn, opts InitDbOpts) (err error) {
 	if !opts.DontInitSchema {
 		err = InitSchema(conn, opts.PageSize, !opts.NoTriggers)
 		if err != nil {
+			err = fmt.Errorf("initing schema: %w", err)
 			return
 		}
 	}
