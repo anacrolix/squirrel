@@ -1,35 +1,22 @@
-package squirrel
+package squirrel_test
 
 import (
+	"github.com/anacrolix/squirrel"
 	"math/rand"
-	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
 	qt "github.com/frankban/quicktest"
 )
 
-func tempCachePath(c testing.TB) string {
-	return filepath.Join(c.TempDir(), "squirrel.db")
-}
-
-func newCachePath(c *qt.C, dir string) string {
-	c.Assert(os.MkdirAll(dir, 0o700), qt.IsNil)
-	file, err := os.CreateTemp(dir, "")
-	c.Assert(err, qt.IsNil)
-	file.Close()
-	return file.Name()
-}
-
 func benchCache(
 	b *testing.B,
-	cacheOpts NewCacheOpts,
-	setup func(cache *Cache) error,
-	loop func(cache *Cache) error,
+	cacheOpts squirrel.NewCacheOpts,
+	setup func(cache *squirrel.Cache) error,
+	loop func(cache *squirrel.Cache) error,
 ) {
 	c := qt.New(b)
-	cache := newCache(c, cacheOpts)
+	cache := squirrel.TestingNewCache(c, cacheOpts)
 	err := setup(cache)
 	c.Assert(err, qt.IsNil)
 	started := time.Now()
@@ -44,23 +31,18 @@ func benchCache(
 
 func benchCacheWrapLoop(
 	b *testing.B,
-	cacheOpts NewCacheOpts,
-	setup func(cache *Cache) error,
-	loop func(cache *Cache) error,
+	cacheOpts squirrel.NewCacheOpts,
+	setup func(cache *squirrel.Cache) error,
+	loop func(cache *squirrel.Cache) error,
 ) {
 	c := qt.New(b)
-	cache := newCache(c, cacheOpts)
+	cache := squirrel.TestingNewCache(c, cacheOpts)
 	err := setup(cache)
 	c.Assert(err, qt.IsNil)
 	b.ResetTimer()
 	err = loop(cache)
 	b.StopTimer()
 	c.Assert(err, qt.IsNil)
-}
-
-func defaultCacheOpts(tb testing.TB) (ret NewCacheOpts) {
-	ret.Path = tempCachePath(tb)
-	return
 }
 
 const defaultKey = "hello"

@@ -1,4 +1,4 @@
-package squirrel
+package squirrel_test
 
 import (
 	"hash"

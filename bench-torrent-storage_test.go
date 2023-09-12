@@ -1,10 +1,11 @@
-package squirrel
+package squirrel_test
 
 import (
 	"encoding/binary"
 	"errors"
 	"fmt"
 	g "github.com/anacrolix/generics"
+	"github.com/anacrolix/squirrel"
 	"io"
 	"testing"
 )
@@ -30,7 +31,7 @@ func BenchmarkRandRead(b *testing.B) {
 type offIterFunc = func() (uint32, bool)
 
 type readHashAndTagFunc = func(
-	cache *Cache,
+	cache *squirrel.Cache,
 	key []byte,
 	offIter offIterFunc,
 	pieceSize int,
@@ -40,7 +41,7 @@ type readHashAndTagFunc = func(
 	hash io.Writer,
 ) error
 
-type pieceWriteFunc = func(cache *Cache, key []byte, off uint32, b []byte, pieceSize uint32) error
+type pieceWriteFunc = func(cache *squirrel.Cache, key []byte, off uint32, b []byte, pieceSize uint32) error
 
 const (
 	logTorrentStorageBenchmarkDbPaths = false
@@ -48,7 +49,7 @@ const (
 
 func benchmarkTorrentStorage(
 	b *testing.B,
-	cacheOpts NewCacheOpts,
+	cacheOpts squirrel.NewCacheOpts,
 	pieceWrite pieceWriteFunc,
 	readAndHash readHashAndTagFunc,
 ) {
@@ -64,10 +65,10 @@ func benchmarkTorrentStorage(
 	benchCache(
 		b,
 		cacheOpts,
-		func(cache *Cache) error {
+		func(cache *squirrel.Cache) error {
 			return nil
 		},
-		func(cache *Cache) error {
+		func(cache *squirrel.Cache) error {
 			var piece [pieceSize]byte
 			readRandSparse(piece[:])
 			h0 := newFastestHash()
@@ -111,14 +112,14 @@ func benchmarkTorrentStorage(
 	b.ReportMetric(float64((pieceSize+chunkSize-1)/chunkSize*b.N)/b.Elapsed().Seconds(), "chunks/s")
 }
 
-func writeChunksSeparately(cache *Cache, key []byte, off uint32, b []byte, pieceSize uint32) error {
+func writeChunksSeparately(cache *squirrel.Cache, key []byte, off uint32, b []byte, pieceSize uint32) error {
 	key = binary.BigEndian.AppendUint32(key, off)
 	return cache.Put(string(key), b)
 }
 
-func writeToOneBigPiece(cache *Cache, key []byte, off uint32, b []byte, pieceSize uint32) error {
-	return cache.Tx(func(tx *Tx) (err error) {
-		blob, err := tx.Create(string(key), CreateOpts{Length: int64(pieceSize)})
+func writeToOneBigPiece(cache *squirrel.Cache, key []byte, off uint32, b []byte, pieceSize uint32) error {
+	return cache.Tx(func(tx *squirrel.Tx) (err error) {
+		blob, err := tx.Create(string(key), squirrel.CreateOpts{Length: int64(pieceSize)})
 		if err != nil {
 			return
 		}
@@ -128,7 +129,7 @@ func writeToOneBigPiece(cache *Cache, key []byte, off uint32, b []byte, pieceSiz
 	})
 }
 
-func readAndHashSeparateChunks[C Cacher](
+func readAndHashSeparateChunks[C squirrel.Cacher](
 	cache C,
 	key []byte,
 	offIter offIterFunc,
@@ -155,7 +156,7 @@ func readAndHashSeparateChunks[C Cacher](
 }
 
 func readHashAndTagOneBigPiece(
-	cache *Cache,
+	cache *squirrel.Cache,
 	key []byte,
 	offIter offIterFunc,
 	pieceSize int,
@@ -172,8 +173,8 @@ func readHashAndTagOneBigPiece(
 }
 
 func BenchmarkTorrentStorage(b *testing.B) {
-	newCacheOpts := func(c testing.TB) NewCacheOpts {
-		cacheOpts := defaultCacheOpts(c)
+	newCacheOpts := func(c testing.TB) squirrel.NewCacheOpts {
+		cacheOpts := squirrel.TestingDefaultCacheOpts(c)
 		cacheOpts.SetAutoVacuum = g.Some("incremental")
 		cacheOpts.RequireAutoVacuum = g.Some[any](2)
 		return cacheOpts
@@ -181,25 +182,25 @@ func BenchmarkTorrentStorage(b *testing.B) {
 	startNestedBenchmark(
 		b,
 		newCacheOpts,
-		func(b *testing.B, opts func() NewCacheOpts) {
+		func(b *testing.B, opts func() squirrel.NewCacheOpts) {
 			benchmarkTorrentStorageVaryingChunksPiecesTransactions(b, opts)
 		},
 		[]nestedBench{
-			{"Wal", func(opts *NewCacheOpts) {
+			{"Wal", func(opts *squirrel.NewCacheOpts) {
 				opts.SetJournalMode = "wal"
 			}},
-			{"Delete", func(opts *NewCacheOpts) {
+			{"Delete", func(opts *squirrel.NewCacheOpts) {
 				opts.SetJournalMode = "delete"
 			}},
-			{"JournalModeOff", func(opts *NewCacheOpts) {
+			{"JournalModeOff", func(opts *squirrel.NewCacheOpts) {
 				opts.SetJournalMode = "off"
 			}},
 		},
 		[]nestedBench{
-			{"LockingModeExclusive", func(opts *NewCacheOpts) {
+			{"LockingModeExclusive", func(opts *squirrel.NewCacheOpts) {
 				opts.SetLockingMode = "exclusive"
 			}},
-			{"LockingModeNormal", func(opts *NewCacheOpts) {
+			{"LockingModeNormal", func(opts *squirrel.NewCacheOpts) {
 				opts.SetLockingMode = "normal"
 			}},
 		},
@@ -208,7 +209,7 @@ func BenchmarkTorrentStorage(b *testing.B) {
 
 func benchmarkTorrentStorageVaryingChunksPiecesTransactions(
 	b *testing.B,
-	newCacheOpts func() NewCacheOpts,
+	newCacheOpts func() squirrel.NewCacheOpts,
 ) {
 	b.Run("IndividualChunks", func(b *testing.B) {
 		benchmarkTorrentStorage(
@@ -225,7 +226,7 @@ func benchmarkTorrentStorageVaryingChunksPiecesTransactions(
 			cacheOpts,
 			writeChunksSeparately,
 			func(
-				cache *Cache,
+				cache *squirrel.Cache,
 				key []byte,
 				offIter offIterFunc,
 				pieceSize int,
@@ -234,7 +235,7 @@ func benchmarkTorrentStorageVaryingChunksPiecesTransactions(
 			) (err error) {
 				err = errors.Join(
 					cache.Tx(
-						func(tx *Tx) error {
+						func(tx *squirrel.Tx) error {
 							return readAndHashSeparateChunks(tx, key, offIter, pieceSize, buf, hash)
 						}),
 					err)

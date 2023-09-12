@@ -1,14 +1,15 @@
-package squirrel
+package squirrel_test
 
 import (
 	"fmt"
 	g "github.com/anacrolix/generics"
+	"github.com/anacrolix/squirrel"
 	qt "github.com/frankban/quicktest"
 	"io"
 	"testing"
 )
 
-func benchCacheGets(cache *Cache, b *testing.B) {
+func benchCacheGets(cache *squirrel.Cache, b *testing.B) {
 	c := qt.New(b)
 	key := "hello"
 	value := []byte("world")
@@ -46,7 +47,7 @@ func benchCacheGets(cache *Cache, b *testing.B) {
 		}
 	})
 	b.Run("HitFullTransaction", func(b *testing.B) {
-		err := cache.Tx(func(tx *Tx) error {
+		err := cache.Tx(func(tx *squirrel.Tx) error {
 			for i := 0; i < b.N; i++ {
 				var buf [6]byte
 				n, err := tx.ReadFull(key, buf[:])
@@ -68,21 +69,21 @@ func benchCacheGets(cache *Cache, b *testing.B) {
 
 func BenchmarkCacheDefaults(b *testing.B) {
 	c := qt.New(b)
-	cacheOpts := defaultCacheOpts(b)
-	cache := newCache(c, cacheOpts)
+	cacheOpts := squirrel.TestingDefaultCacheOpts(b)
+	cache := squirrel.TestingNewCache(c, cacheOpts)
 	benchCacheGets(cache, b)
 }
 
-func benchmarkReadAtEndOfBlob(b *testing.B, blobSize int, readSize int, cacheOpts NewCacheOpts) {
+func benchmarkReadAtEndOfBlob(b *testing.B, blobSize int, readSize int, cacheOpts squirrel.NewCacheOpts) {
 	value := make([]byte, blobSize)
 	readRandSparse(value)
 	buf := make([]byte, readSize)
 	b.SetBytes(int64(readSize))
 	benchCache(b, cacheOpts,
-		func(cache *Cache) error {
+		func(cache *squirrel.Cache) error {
 			return cache.Put(defaultKey, value)
 		},
-		func(cache *Cache) (err error) {
+		func(cache *squirrel.Cache) (err error) {
 			pb, err := cache.OpenPinned(defaultKey)
 			if err != nil {
 				return err
@@ -103,29 +104,29 @@ func benchmarkReadAtEndOfBlob(b *testing.B, blobSize int, readSize int, cacheOpt
 // enabled.
 func BenchmarkReadAtEndOfBlob(b *testing.B) {
 	autoVacuums := []nestedBench{
-		{"AutoVacuumNone", func(opts *NewCacheOpts) {
+		{"AutoVacuumNone", func(opts *squirrel.NewCacheOpts) {
 			opts.SetAutoVacuum = g.Some("none")
 			opts.RequireAutoVacuum = g.Some[any](0)
 		}},
-		{"AutoVacuumIncremental", func(opts *NewCacheOpts) {
+		{"AutoVacuumIncremental", func(opts *squirrel.NewCacheOpts) {
 			// Show that incremental still generates a "pointer map" in sqlite3.
 			opts.SetAutoVacuum = g.Some("incremental")
 			opts.RequireAutoVacuum = g.Some[any](2)
 		}},
-		{"AutoVacuumFull", func(opts *NewCacheOpts) {
+		{"AutoVacuumFull", func(opts *squirrel.NewCacheOpts) {
 			opts.SetAutoVacuum = g.Some("full")
 			opts.RequireAutoVacuum = g.Some[any](1)
 		}},
 	}
 	startNestedBenchmark(b,
-		func(b testing.TB) NewCacheOpts {
-			cacheOpts := defaultCacheOpts(b)
+		func(b testing.TB) squirrel.NewCacheOpts {
+			cacheOpts := squirrel.TestingDefaultCacheOpts(b)
 			// This needs to be significantly less than the blob size or the linked list of pages
 			// will be cached.
 			cacheOpts.CacheSize = g.Some[int64](-1 << 10) // 1 MiB
 			return cacheOpts
 		},
-		func(b *testing.B, opts func() NewCacheOpts) {
+		func(b *testing.B, opts func() squirrel.NewCacheOpts) {
 			benchmarkReadAtEndOfBlob(b, 4<<20, 4<<10, opts())
 		},
 		autoVacuums)
@@ -133,13 +134,13 @@ func BenchmarkReadAtEndOfBlob(b *testing.B) {
 
 type nestedBench struct {
 	name     string
-	withOpts func(opts *NewCacheOpts)
+	withOpts func(opts *squirrel.NewCacheOpts)
 }
 
 func startNestedBenchmark(
 	b *testing.B,
-	newCacheOpts func(b testing.TB) NewCacheOpts,
-	finally func(b *testing.B, opts func() NewCacheOpts),
+	newCacheOpts func(b testing.TB) squirrel.NewCacheOpts,
+	finally func(b *testing.B, opts func() squirrel.NewCacheOpts),
 	nested ...[]nestedBench,
 ) {
 	runNested(b, nil, newCacheOpts, nested, finally)
@@ -147,13 +148,13 @@ func startNestedBenchmark(
 
 func runNested(
 	b *testing.B,
-	withOpts []func(*NewCacheOpts),
-	newCacheOpts func(testing.TB) NewCacheOpts,
+	withOpts []func(*squirrel.NewCacheOpts),
+	newCacheOpts func(testing.TB) squirrel.NewCacheOpts,
 	nested [][]nestedBench,
-	finally func(b *testing.B, opts func() NewCacheOpts),
+	finally func(b *testing.B, opts func() squirrel.NewCacheOpts),
 ) {
 	if len(nested) == 0 {
-		finally(b, func() NewCacheOpts {
+		finally(b, func() squirrel.NewCacheOpts {
 			cacheOpts := newCacheOpts(b)
 			for _, withOpt := range withOpts {
 				withOpt(&cacheOpts)
