@@ -29,6 +29,7 @@ func (tx *Tx) openBlob(name string, length g.Option[int64]) (pb *PinnedBlob, err
 		length.UnwrapOr(-1),
 		true,
 		g.None[rowid](),
+		true,
 	)
 	if err != nil {
 		return
@@ -44,7 +45,7 @@ func (tx *Tx) openBlob(name string, length g.Option[int64]) (pb *PinnedBlob, err
 
 func (tx *Tx) Put(name string, b []byte) (err error) {
 	// TODO: Reuse blobs cached in the Tx, with reopen?
-	blob, _, err := tx.c.getBlob(name, true, int64(len(b)), true, g.None[rowid]())
+	blob, _, err := tx.c.getBlob(name, true, int64(len(b)), true, g.None[rowid](), true)
 	if err != nil {
 		return
 	}

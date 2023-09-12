@@ -1,10 +1,10 @@
 create table if not exists blob (
     name text primary key,
-    store_time timestamp not null default (unixepoch('now', 'subsec')),
-    last_used timestamp default (unixepoch('now', 'subsec')),
+    store_time integer not null default (cast(unixepoch('subsec')*1e3 as integer)),
+    last_used integer not null default (cast(unixepoch('subsec')*1e3 as integer)),
     access_count integer not null default 0,
     data_id integer not null references blob_data(data_id) on delete cascade
-);
+) strict;
 
 create table if not exists blob_data (
     data_id integer primary key,

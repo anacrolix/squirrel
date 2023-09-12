@@ -6,6 +6,7 @@ import (
 	g "github.com/anacrolix/generics"
 	sqlite "github.com/go-llsqlite/adapter"
 	"github.com/go-llsqlite/adapter/sqlitex"
+	"time"
 )
 
 // Blobs are references to a name in a Cache that are looked up when its methods are used. They
@@ -17,7 +18,7 @@ type Blob struct {
 }
 
 func (p Blob) getBlob(write bool) (*sqlite.Blob, rowid, error) {
-	return p.cache.getBlob(p.name, write, p.length.UnwrapOr(-1), false, g.None[int64]())
+	return p.cache.getBlob(p.name, write, p.length.UnwrapOr(-1), false, g.None[int64](), write)
 }
 
 func (p Blob) doWithBlob(
@@ -84,4 +85,14 @@ func (b Blob) Size() (l int64, err error) {
 		}, true)
 	})
 	return
+}
+
+func (b Blob) LastUsed() (lastUsed time.Time, err error) {
+	b.cache.l.RLock()
+	defer b.cache.l.RUnlock()
+	err = b.cache.getCacheErr()
+	if err != nil {
+		return
+	}
+	return b.cache.lastUsed(b.name)
 }

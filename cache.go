@@ -8,6 +8,7 @@ import (
 	"github.com/go-llsqlite/adapter/sqlitex"
 	"io/fs"
 	"sync"
+	"time"
 )
 
 type NewCacheOpts struct {
@@ -58,7 +59,7 @@ func (cl *Cache) GetCapacity() (ret int64, ok bool) {
 }
 
 type Cache struct {
-	l      sync.Mutex
+	l      sync.RWMutex
 	conn   conn
 	opts   NewCacheOpts
 	closed bool
@@ -83,9 +84,21 @@ func (c *Cache) Close() (err error) {
 	return
 }
 
-// Returns a PinnedBlob. The item must already exist. You must call PinnedBlob.Release when done
+// Returns a PinnedBlob. The item must already exist. You must call PinnedBlob.Close when done
 // with it.
 func (c *Cache) OpenPinned(name string) (ret *PinnedBlob, err error) {
+	return c.openPinned(name, true)
+}
+
+// Returns a PinnedBlob. The item must already exist. You must call PinnedBlob.Close when done
+// with it.
+func (c *Cache) OpenPinnedReadOnly(name string) (ret *PinnedBlob, err error) {
+	return c.openPinned(name, false)
+}
+
+// Returns a PinnedBlob. The item must already exist. You must call PinnedBlob.Close when done
+// with it.
+func (c *Cache) openPinned(name string, write bool) (ret *PinnedBlob, err error) {
 	c.l.Lock()
 	defer c.l.Unlock()
 	err = c.getCacheErr()
@@ -98,7 +111,7 @@ func (c *Cache) OpenPinned(name string) (ret *PinnedBlob, err error) {
 	}
 	ret.c = c
 	ret.key = name
-	ret.blob, ret.rowid, err = c.getBlob(name, false, -1, false, g.None[int64]())
+	ret.blob, ret.rowid, err = c.getBlob(name, false, -1, false, g.None[int64](), write)
 	return
 }
 
@@ -139,7 +152,7 @@ func (c *Cache) accessBlob(key string) (dataId rowid, err error) {
 		c.conn, `
 		update blob
 			set 
-		    	last_used=datetime('now', 'subsec'),
+		    	last_used=cast(unixepoch('subsec')*1e3 as integer),
 		    	access_count=access_count+1
 			where name=?
 			returning data_id`,
@@ -199,8 +212,8 @@ func (c *Cache) wrapTxMethod(txCall func(tx *Tx) error) error {
 	})
 }
 
-func (c *Cache) openBlob(rowid int64) (*sqlite.Blob, error) {
-	return c.conn.OpenBlob("main", "blob_data", "data", rowid, true)
+func (c *Cache) openBlob(rowid int64, write bool) (*sqlite.Blob, error) {
+	return c.conn.OpenBlob("main", "blob_data", "data", rowid, write)
 }
 
 func (c *Cache) getBlob(
@@ -209,9 +222,10 @@ func (c *Cache) getBlob(
 	length int64,
 	clobberLength bool,
 	rowidHint g.Option[int64],
+	write bool,
 ) (blob *sqlite.Blob, rowid rowid, err error) {
 	if rowidHint.Ok {
-		blob, err = c.openBlob(rowidHint.Value)
+		blob, err = c.openBlob(rowidHint.Value, write)
 		if err == nil {
 			rowid = rowidHint.Value
 		} else if sqlite.IsResultCode(err, sqlite.ResultCodeGenericError) {
@@ -241,10 +255,28 @@ func (c *Cache) getBlob(
 				return
 			}
 		}
-		blob, err = c.openBlob(rowid)
+		blob, err = c.openBlob(rowid, write)
 		if err != nil {
 			panic(err)
 		}
 	}
 	return blob, rowid, nil
+}
+
+func (c *Cache) lastUsed(key string) (lastUsed time.Time, err error) {
+	var unixMs setOnce[int64]
+	err = sqlitex.Exec(
+		c.conn,
+		`select last_used from blob where name=?`,
+		func(stmt *sqlite.Stmt) error {
+			unixMs.Set(stmt.ColumnInt64(0))
+			lastUsed = time.UnixMilli(unixMs.value)
+			return nil
+		},
+		key,
+	)
+	if !unixMs.ok {
+		err = ErrNotFound
+	}
+	return
 }

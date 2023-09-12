@@ -4,14 +4,17 @@ import (
 	"errors"
 	g "github.com/anacrolix/generics"
 	"github.com/go-llsqlite/adapter"
+	"time"
 )
 
-// Wraps a specific sqlite.Blob instance, when we don't want to dive into the cache to refetch blobs.
+// Wraps a specific sqlite.Blob instance, when we don't want to dive into the cache to refetch
+// blobs. Until Closed, PinnedBlob holds a transaction open on the Cache.
 type PinnedBlob struct {
 	key   string
 	rowid int64
 	blob  *sqlite.Blob
 	c     *Cache
+	write bool
 }
 
 func (pb *PinnedBlob) Reopen(name string) error {
@@ -55,13 +58,16 @@ func (pb *PinnedBlob) doIoAt(
 		n, err = xCall(pb.blob, b, off)
 		if err == nil {
 			_, err = pb.c.accessBlob(pb.key)
+			if !pb.write && sqlite.IsResultCode(err, sqlite.ResultCodeBusy) {
+				err = nil
+			}
 			return
 		}
 		if !isReopenBlobError(err) {
 			return
 		}
 		pb.blob.Close()
-		pb.blob, pb.rowid, err = pb.c.getBlob(pb.key, false, -1, false, g.Some(pb.rowid))
+		pb.blob, pb.rowid, err = pb.c.getBlob(pb.key, false, -1, false, g.Some(pb.rowid), pb.write)
 		if err != nil {
 			panic(err)
 		}
@@ -76,4 +82,10 @@ func isReopenBlobError(err error) bool {
 
 func (pb *PinnedBlob) Close() error {
 	return pb.blob.Close()
+}
+
+func (pb *PinnedBlob) LastUsed() (lastUsed time.Time, err error) {
+	pb.c.l.Lock()
+	defer pb.c.l.Unlock()
+	return pb.c.lastUsed(pb.key)
 }
