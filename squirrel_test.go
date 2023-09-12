@@ -51,27 +51,6 @@ func TestTagDeletedWithBlob(t *testing.T) {
 	c.Check(tagOk, qt.IsFalse)
 }
 
-func TestConcurrentReaders(t *testing.T) {
-	qtc := qt.New(t)
-	cacheOpts := squirrel.TestingDefaultCacheOpts(t)
-	c1 := squirrel.TestingNewCache(qtc, cacheOpts)
-	c2 := squirrel.TestingNewCache(qtc, cacheOpts)
-
-	err := c1.Put(defaultKey, defaultValue)
-	qtc.Assert(err, qt.IsNil)
-	r1, err := c1.OpenPinnedReadOnly(defaultKey)
-	qtc.Assert(err, qt.IsNil)
-	defer r1.Close()
-	b1, err := io.ReadAll(io.NewSectionReader(r1, 0, r1.Length()))
-	qtc.Assert(err, qt.IsNil)
-
-	r2, err := c2.OpenPinnedReadOnly(defaultKey)
-	defer r2.Close()
-	b2, err := io.ReadAll(io.NewSectionReader(r2, 0, r2.Length()))
-	qtc.Assert(err, qt.IsNil)
-	qtc.Assert(b1, qt.DeepEquals, b2)
-}
-
 func waitSqliteSubsec() {
 	// Wait long enough for unixepoch('now', 'subsec') to change in sqlite.
 	time.Sleep(2 * time.Millisecond)
@@ -140,4 +119,33 @@ func testReadOnlyPinned(
 	} else {
 		qtc.Check(afterRead, qt.Equals, beforeRead)
 	}
+}
+
+// Check that we can read while there's a write transaction, and not error due to not being able to
+// apply access.
+func TestNewCacheWaitsForWrite(t *testing.T) {
+	qtc := qt.New(t)
+	cacheOpts := squirrel.TestingDefaultCacheOpts(t)
+
+	c1 := squirrel.TestingNewCache(qtc, cacheOpts)
+	defer c1.Close()
+	putValue := []byte("mundo")
+	err := c1.Put(defaultKey, putValue)
+	qtc.Assert(err, qt.IsNil)
+
+	// Start a read transaction.
+	writePb, err := c1.OpenPinned(defaultKey)
+	qtc.Assert(err, qt.IsNil)
+	defer writePb.Close()
+	// Upgrade to a write.
+	_, err = writePb.WriteAt(defaultValue, 0)
+	qtc.Assert(putValue, qt.Not(qt.DeepEquals), defaultValue)
+	qtc.Assert(err, qt.IsNil)
+
+	// Wait long enough that the following NewCache should be blocked trying to init the schema.
+	time.AfterFunc(time.Second, func() {
+		writePb.Close()
+	})
+	c2 := squirrel.TestingNewCache(qtc, cacheOpts)
+	c2.Close()
 }

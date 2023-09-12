@@ -8,7 +8,7 @@ require (
 	github.com/anacrolix/generics v0.0.0-20230816105729-c755655aee45
 	github.com/anacrolix/log v0.14.3-0.20230823030427-4b296d71a6b4
 	github.com/frankban/quicktest v1.14.6
-	github.com/go-llsqlite/adapter v0.0.0-20230910110622-f955011c1e41
+	github.com/go-llsqlite/adapter v0.0.0-20230912124304-94ed0e573c23
 	golang.org/x/sync v0.3.0
 )
 

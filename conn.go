@@ -83,22 +83,27 @@ var (
 	initTriggers string
 )
 
-func InitSchema(conn conn, pageSize int, triggers bool) error {
-	err := setPageSize(conn, pageSize)
+func InitSchema(conn conn, pageSize int, triggers bool) (err error) {
+	err = setPageSize(conn, pageSize)
 	if err != nil {
 		return fmt.Errorf("setting page size: %w", err)
 	}
-	err = sqlitex.ExecScript(conn, initScript)
-	if err != nil {
-		return err
-	}
-	if triggers {
-		err := sqlitex.ExecScript(conn, initTriggers)
+	// By starting immediately into a write, we can block rather than get SQLITE_BUSY for trying to
+	// upgrade from a read later.
+	return sqlitex.WithTransactionRollbackOnError(conn, `immediate`, func() (err error) {
+		err = sqlitex.ExecScript(conn, initScript)
 		if err != nil {
-			return fmt.Errorf("initing triggers: %w", err)
+			return
 		}
-	}
-	return nil
+		if triggers {
+			err = sqlitex.ExecScript(conn, initTriggers)
+			if err != nil {
+				err = fmt.Errorf("initing triggers: %w", err)
+				return
+			}
+		}
+		return
+	})
 }
 
 // Remove any capacity limits.
