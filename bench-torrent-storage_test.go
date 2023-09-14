@@ -216,7 +216,8 @@ func benchmarkTorrentStorageVaryingChunksPiecesTransactions(
 			b,
 			newCacheOpts(),
 			writeChunksSeparately,
-			readAndHashSeparateChunks,
+			// TODO: Don't have to specify the type param in go1.21
+			readAndHashSeparateChunks[*squirrel.Cache],
 		)
 	})
 	b.Run("IndividualChunksTransaction", func(b *testing.B) {
