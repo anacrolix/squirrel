@@ -6,7 +6,6 @@ import (
 	g "github.com/anacrolix/generics"
 	sqlite "github.com/go-llsqlite/adapter"
 	"github.com/go-llsqlite/adapter/sqlitex"
-	"io/fs"
 	"sync"
 	"time"
 )
@@ -86,31 +85,25 @@ func (c *Cache) Close() (err error) {
 
 // Returns a PinnedBlob. The item must already exist. You must call PinnedBlob.Close when done
 // with it.
-func (c *Cache) OpenPinned(name string) (ret *PinnedBlob, err error) {
-	return c.openPinned(name, true)
-}
-
-// Returns a PinnedBlob. The item must already exist. You must call PinnedBlob.Close when done
-// with it.
 func (c *Cache) OpenPinnedReadOnly(name string) (ret *PinnedBlob, err error) {
-	return c.openPinned(name, false)
-}
-
-// Returns a PinnedBlob. The item must already exist. You must call PinnedBlob.Close when done
-// with it.
-func (c *Cache) openPinned(name string, write bool) (ret *PinnedBlob, err error) {
 	c.l.Lock()
 	defer c.l.Unlock()
 	err = c.getCacheErr()
 	if err != nil {
 		return
 	}
+	return c.openPinned(name, false, nil)
+}
+
+// Returns a PinnedBlob. The item must already exist. You must call PinnedBlob.Close when done
+// with it.
+func (c *Cache) openPinned(name string, write bool, tx *Tx) (ret *PinnedBlob, err error) {
 	ret = &PinnedBlob{
-		key: name,
-		c:   c,
+		key:   name,
+		c:     c,
+		tx:    tx,
+		write: write,
 	}
-	ret.c = c
-	ret.key = name
 	ret.blob, ret.rowid, err = c.getBlob(name, false, -1, false, g.None[int64](), write)
 	return
 }
@@ -138,7 +131,7 @@ func (c *Cache) OpenWithLength(name string, length int64) Blob {
 }
 
 func (c *Cache) Put(name string, b []byte) (err error) {
-	txErr := c.Tx(func(tx *Tx) error {
+	txErr := c.TxImmediate(func(tx *Tx) error {
 		return tx.Put(name, b)
 	})
 	return errors.Join(err, txErr)
@@ -180,14 +173,14 @@ func (c *Cache) ReadFull(key string, b []byte) (n int, err error) {
 	return
 }
 
-func (c *Cache) Tx(f func(tx *Tx) error) (err error) {
+func (c *Cache) runTx(f func(tx *Tx) error, level string) (err error) {
 	c.l.Lock()
 	defer c.l.Unlock()
 	err = c.getCacheErr()
 	if err != nil {
 		return
 	}
-	err = sqlitex.Exec(c.conn, "begin immediate", nil)
+	err = sqlitex.Exec(c.conn, "begin "+level, nil)
 	if err != nil {
 		return
 	}
@@ -198,6 +191,14 @@ func (c *Cache) Tx(f func(tx *Tx) error) (err error) {
 		err = errors.Join(err, sqlitex.Exec(c.conn, "rollback", nil))
 	}
 	return
+}
+
+func (c *Cache) Tx(f func(tx *Tx) error) (err error) {
+	return c.runTx(f, "")
+}
+
+func (c *Cache) TxImmediate(f func(tx *Tx) error) (err error) {
+	return c.runTx(f, "immediate")
 }
 
 func (c *Cache) SetTag(key, name string, value interface{}) (err error) {
@@ -245,7 +246,7 @@ func (c *Cache) getBlob(
 			return
 		}
 		if !ok && !create {
-			err = fs.ErrNotExist
+			err = ErrNotFound
 			return
 		}
 		if !ok || (clobberLength && existingLength != length) {

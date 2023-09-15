@@ -163,7 +163,7 @@ func readHashAndTagOneBigPiece(
 	buf []byte,
 	hash io.Writer,
 ) (err error) {
-	blob, err := cache.OpenPinned(string(key))
+	blob, err := cache.OpenPinnedReadOnly(string(key))
 	if err != nil {
 		panic(err)
 	}

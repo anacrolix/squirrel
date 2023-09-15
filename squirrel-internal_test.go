@@ -43,7 +43,7 @@ func TestConcurrentCreateBlob(t *testing.T) {
 	}
 	c.Assert(eg.Wait(), qt.IsNil)
 	cache := TestingNewCache(c, opts)
-	pb, err := cache.OpenPinned("greeting")
+	pb, err := cache.OpenPinnedReadOnly("greeting")
 	c.Assert(err, qt.IsNil)
 	b, err := io.ReadAll(io.NewSectionReader(pb, 0, pb.Length()))
 	c.Check(pb.Close(), qt.IsNil)

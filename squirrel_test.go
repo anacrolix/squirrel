@@ -1,13 +1,14 @@
 package squirrel_test
 
 import (
+	"context"
 	"errors"
 	_ "github.com/anacrolix/envpprof"
 	"github.com/anacrolix/squirrel"
 	qt "github.com/frankban/quicktest"
 	sqlite "github.com/go-llsqlite/adapter"
+	"golang.org/x/sync/errgroup"
 	"io"
-	"io/fs"
 	"testing"
 	"time"
 )
@@ -21,8 +22,8 @@ func errorIs(target error) func(error) bool {
 func TestBlobWriteOutOfBounds(t *testing.T) {
 	c := qt.New(t)
 	cache := squirrel.TestingNewCache(c, squirrel.NewCacheOpts{})
-	_, err := cache.OpenPinned("greeting")
-	c.Check(err, qt.Satisfies, errorIs(fs.ErrNotExist))
+	_, err := cache.OpenPinnedReadOnly("greeting")
+	c.Check(err, qt.Satisfies, errorIs(squirrel.ErrNotFound))
 	b := cache.BlobWithLength("greeting", 6)
 	n, err := b.WriteAt([]byte("hello "), 0)
 	c.Assert(err, qt.IsNil)
@@ -75,25 +76,36 @@ func TestIgnoreBusyUpdatingAccessOnRead(t *testing.T) {
 	c2 := squirrel.TestingNewCache(qtc, cacheOpts)
 
 	waitSqliteSubsec()
+	closeWait := make(chan struct{})
+	var writeTime time.Time
+	eg, _ := errgroup.WithContext(context.Background())
 	// Start a read transaction.
-	writePb, err := c1.OpenPinned(defaultKey)
-	qtc.Assert(err, qt.IsNil)
-	defer writePb.Close()
-	// Upgrade to a write.
-	_, err = writePb.WriteAt(defaultValue, 0)
-	qtc.Assert(putValue, qt.Not(qt.DeepEquals), defaultValue)
-	qtc.Assert(err, qt.IsNil)
-	writeTime, err := writePb.LastUsed()
-	qtc.Assert(err, qt.IsNil)
-	qtc.Assert(writeTime, qt.Not(qt.Equals), putTime)
-	qtc.Assert(err, qt.IsNil)
-	t.Logf("write time: %v", writeTime.UnixMilli())
+	eg.Go(func() error {
+		return c1.Tx(func(tx *squirrel.Tx) error {
+			writePb, err := tx.OpenPinned(defaultKey)
+			qtc.Assert(err, qt.IsNil)
+			defer writePb.Close()
+			// Upgrade to a write.
+			_, err = writePb.WriteAt(defaultValue, 0)
+			qtc.Assert(putValue, qt.Not(qt.DeepEquals), defaultValue)
+			qtc.Assert(err, qt.IsNil)
+			writeTime, err = writePb.LastUsed()
+			qtc.Assert(err, qt.IsNil)
+			qtc.Assert(writeTime, qt.Not(qt.Equals), putTime)
+			qtc.Assert(err, qt.IsNil)
+			t.Logf("write time: %v", writeTime.UnixMilli())
+			<-closeWait
+			return writePb.Close()
+		})
+	})
 
 	// Check we read the put without error, despite a write transaction being held open by writePb.
 	testReadOnlyPinned(qtc, c2, defaultKey, putValue, putTime, false)
-	writePb.Close()
+	close(closeWait)
 	// Now check that we read the new written value, and our read updates access.
 	testReadOnlyPinned(qtc, c2, defaultKey, defaultValue, writeTime, true)
+
+	qtc.Check(eg.Wait(), qt.IsNil)
 }
 
 func testReadOnlyPinned(
@@ -133,19 +145,22 @@ func TestNewCacheWaitsForWrite(t *testing.T) {
 	err := c1.Put(defaultKey, putValue)
 	qtc.Assert(err, qt.IsNil)
 
+	ready := make(chan struct{})
 	// Start a read transaction.
-	writePb, err := c1.OpenPinned(defaultKey)
-	qtc.Assert(err, qt.IsNil)
-	defer writePb.Close()
-	// Upgrade to a write.
-	_, err = writePb.WriteAt(defaultValue, 0)
-	qtc.Assert(putValue, qt.Not(qt.DeepEquals), defaultValue)
-	qtc.Assert(err, qt.IsNil)
-
-	// Wait long enough that the following NewCache should be blocked trying to init the schema.
-	time.AfterFunc(time.Second, func() {
-		writePb.Close()
+	c1.Tx(func(tx *squirrel.Tx) error {
+		writePb, err := tx.OpenPinned(defaultKey)
+		qtc.Assert(err, qt.IsNil)
+		defer writePb.Close()
+		// Upgrade to a write.
+		_, err = writePb.WriteAt(defaultValue, 0)
+		qtc.Assert(putValue, qt.Not(qt.DeepEquals), defaultValue)
+		qtc.Assert(err, qt.IsNil)
+		close(ready)
+		time.Sleep(time.Second)
+		return writePb.Close()
 	})
+
+	<-ready
 	c2 := squirrel.TestingNewCache(qtc, cacheOpts)
 	c2.Close()
 }

@@ -39,6 +39,7 @@ func (tx *Tx) openBlob(name string, length g.Option[int64]) (pb *PinnedBlob, err
 		rowid: rowid,
 		blob:  blob,
 		c:     tx.c,
+		tx:    tx,
 	}
 	return
 }
@@ -90,4 +91,16 @@ func (tx *Tx) Delete(name string) error {
 	return sqlitex.Execute(tx.c.conn, "delete from blob where name=?", &sqlitex.ExecOptions{
 		Args: []interface{}{name},
 	})
+}
+
+// Returns a PinnedBlob. The item must already exist. You must call PinnedBlob.Close when done
+// with it.
+func (tx *Tx) OpenPinned(name string) (ret *PinnedBlob, err error) {
+	return tx.c.openPinned(name, true, tx)
+}
+
+// Returns a PinnedBlob. The item must already exist. You must call PinnedBlob.Close when done
+// with it.
+func (tx *Tx) OpenPinnedReadOnly(name string) (ret *PinnedBlob, err error) {
+	return tx.c.openPinned(name, false, tx)
 }

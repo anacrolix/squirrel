@@ -17,7 +17,7 @@ func benchCacheGets(cache *squirrel.Cache, b *testing.B) {
 	c.Assert(err, qt.IsNil)
 	b.Run("Hit", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
-			pb, err := cache.OpenPinned(key)
+			pb, err := cache.OpenPinnedReadOnly(key)
 			if err != nil {
 				b.Fatalf("error opening cache: %v", err)
 			}
@@ -84,7 +84,7 @@ func benchmarkReadAtEndOfBlob(b *testing.B, blobSize int, readSize int, cacheOpt
 			return cache.Put(defaultKey, value)
 		},
 		func(cache *squirrel.Cache) (err error) {
-			pb, err := cache.OpenPinned(defaultKey)
+			pb, err := cache.OpenPinnedReadOnly(defaultKey)
 			if err != nil {
 				return err
 			}

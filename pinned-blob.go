@@ -15,11 +15,14 @@ type PinnedBlob struct {
 	blob  *sqlite.Blob
 	c     *Cache
 	write bool
+	tx    *Tx
 }
 
 func (pb *PinnedBlob) Reopen(name string) error {
-	pb.c.l.Lock()
-	defer pb.c.l.Unlock()
+	if pb.tx == nil {
+		pb.c.l.Lock()
+		defer pb.c.l.Unlock()
+	}
 	rowid, _, ok, err := rowidForBlob(pb.c.conn, name)
 	// If we fail between here and the reopen, the blob handle remains on the existing row.
 	if err != nil {
@@ -52,8 +55,10 @@ func (pb *PinnedBlob) doIoAt(
 	b []byte,
 	off int64,
 ) (n int, err error) {
-	pb.c.l.Lock()
-	defer pb.c.l.Unlock()
+	if pb.tx == nil {
+		pb.c.l.Lock()
+		defer pb.c.l.Unlock()
+	}
 	for {
 		n, err = xCall(pb.blob, b, off)
 		if err == nil {
@@ -85,7 +90,9 @@ func (pb *PinnedBlob) Close() error {
 }
 
 func (pb *PinnedBlob) LastUsed() (lastUsed time.Time, err error) {
-	pb.c.l.Lock()
-	defer pb.c.l.Unlock()
+	if pb.tx == nil {
+		pb.c.l.Lock()
+		defer pb.c.l.Unlock()
+	}
 	return pb.c.lastUsed(pb.key)
 }
