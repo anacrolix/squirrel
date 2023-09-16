@@ -2,9 +2,11 @@ package squirrel
 
 import (
 	"errors"
+	"fmt"
+	"time"
+
 	g "github.com/anacrolix/generics"
 	"github.com/go-llsqlite/adapter"
-	"time"
 )
 
 // Wraps a specific sqlite.Blob instance, when we don't want to dive into the cache to refetch
@@ -61,10 +63,13 @@ func (pb *PinnedBlob) doIoAt(
 	}
 	for {
 		n, err = xCall(pb.blob, b, off)
-		if err == nil {
-			_, err = pb.c.accessBlob(pb.key)
-			if !pb.write && sqlite.IsResultCode(err, sqlite.ResultCodeBusy) {
-				err = nil
+		if n != 0 {
+			_, accessErr := pb.c.accessBlob(pb.key)
+			if !pb.write && sqlite.IsResultCode(accessErr, sqlite.ResultCodeBusy) {
+				accessErr = nil
+			}
+			if accessErr != nil {
+				err = errors.Join(err, accessErr)
 			}
 			return
 		}
@@ -74,7 +79,8 @@ func (pb *PinnedBlob) doIoAt(
 		pb.blob.Close()
 		pb.blob, pb.rowid, err = pb.c.getBlob(pb.key, false, -1, false, g.Some(pb.rowid), pb.write)
 		if err != nil {
-			panic(err)
+			err = fmt.Errorf("blob expired, error reopening: %w", err)
+			return
 		}
 		b = b[n:]
 		off += int64(n)
@@ -86,7 +92,11 @@ func isReopenBlobError(err error) bool {
 }
 
 func (pb *PinnedBlob) Close() error {
-	return pb.blob.Close()
+	// pb.blob can be nil if reopening failed.
+	if pb.blob != nil {
+		return pb.blob.Close()
+	}
+	return nil
 }
 
 func (pb *PinnedBlob) LastUsed() (lastUsed time.Time, err error) {

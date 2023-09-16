@@ -3,14 +3,16 @@ package squirrel_test
 import (
 	"context"
 	"errors"
-	_ "github.com/anacrolix/envpprof"
-	"github.com/anacrolix/squirrel"
-	qt "github.com/frankban/quicktest"
-	sqlite "github.com/go-llsqlite/adapter"
-	"golang.org/x/sync/errgroup"
 	"io"
 	"testing"
 	"time"
+
+	_ "github.com/anacrolix/envpprof"
+	qt "github.com/frankban/quicktest"
+	sqlite "github.com/go-llsqlite/adapter"
+	"golang.org/x/sync/errgroup"
+
+	"github.com/anacrolix/squirrel"
 )
 
 func errorIs(target error) func(error) bool {
@@ -101,11 +103,13 @@ func TestIgnoreBusyUpdatingAccessOnRead(t *testing.T) {
 
 	// Check we read the put without error, despite a write transaction being held open by writePb.
 	testReadOnlyPinned(qtc, c2, defaultKey, putValue, putTime, false)
+	// Signal the Tx to complete.
 	close(closeWait)
+	// Wait for the Tx to have completed.
+	qtc.Check(eg.Wait(), qt.IsNil)
 	// Now check that we read the new written value, and our read updates access.
 	testReadOnlyPinned(qtc, c2, defaultKey, defaultValue, writeTime, true)
 
-	qtc.Check(eg.Wait(), qt.IsNil)
 }
 
 func testReadOnlyPinned(
@@ -127,9 +131,9 @@ func testReadOnlyPinned(
 	afterRead, err := r2.LastUsed()
 	qtc.Assert(err, qt.IsNil)
 	if expectAccessUpdate {
-		qtc.Check(afterRead, qt.Not(qt.Equals), beforeRead)
+		qtc.Check(afterRead.UnixMilli(), qt.Not(qt.Equals), beforeRead.UnixMilli())
 	} else {
-		qtc.Check(afterRead, qt.Equals, beforeRead)
+		qtc.Check(afterRead.UnixMilli(), qt.Equals, beforeRead.UnixMilli())
 	}
 }
 
@@ -145,22 +149,49 @@ func TestNewCacheWaitsForWrite(t *testing.T) {
 	err := c1.Put(defaultKey, putValue)
 	qtc.Assert(err, qt.IsNil)
 
-	ready := make(chan struct{})
+	openSecondCache := make(chan struct{})
+	completeTx := make(chan struct{})
 	// Start a read transaction.
-	c1.Tx(func(tx *squirrel.Tx) error {
-		writePb, err := tx.OpenPinned(defaultKey)
-		qtc.Assert(err, qt.IsNil)
-		defer writePb.Close()
-		// Upgrade to a write.
-		_, err = writePb.WriteAt(defaultValue, 0)
-		qtc.Assert(putValue, qt.Not(qt.DeepEquals), defaultValue)
-		qtc.Assert(err, qt.IsNil)
-		close(ready)
-		time.Sleep(time.Second)
-		return writePb.Close()
+	eg, _ := errgroup.WithContext(context.Background())
+	eg.Go(func() error {
+		return c1.Tx(func(tx *squirrel.Tx) error {
+			writePb, err := tx.OpenPinned(defaultKey)
+			qtc.Assert(err, qt.IsNil)
+			defer writePb.Close()
+			// Upgrade to a write.
+			_, err = writePb.WriteAt(defaultValue, 0)
+			qtc.Assert(putValue, qt.Not(qt.DeepEquals), defaultValue)
+			qtc.Assert(err, qt.IsNil)
+			close(openSecondCache)
+			// Wait here until initializing another cache instance blocks.
+			<-completeTx
+			return writePb.Close()
+		})
 	})
 
-	<-ready
+	<-openSecondCache
+	// This will cause NewCache to trigger the write Tx above to complete, thereby unblocking it.
+	cacheOpts.ConnBlockedOnBusy = &completeTx
 	c2 := squirrel.TestingNewCache(qtc, cacheOpts)
-	c2.Close()
+	qtc.Check(c2.Close(), qt.IsNil)
+	qtc.Check(eg.Wait(), qt.IsNil)
+}
+
+func TestTxWhileOpenedPinnedBlob(t *testing.T) {
+	qtc := qt.New(t)
+	cache := squirrel.TestingNewCache(qtc, squirrel.TestingDefaultCacheOpts(qtc))
+	err := cache.Put(defaultKey, defaultValue)
+	qtc.Assert(err, qt.IsNil)
+	pb, err := cache.OpenPinnedReadOnly(defaultKey)
+	qtc.Assert(err, qt.IsNil)
+	b, err := io.ReadAll(io.NewSectionReader(pb, 0, pb.Length()))
+	qtc.Assert(err, qt.IsNil)
+	qtc.Assert(b, qt.DeepEquals, defaultValue)
+	err = cache.Tx(func(tx *squirrel.Tx) error {
+		return tx.Delete(defaultKey)
+	})
+	qtc.Check(err, qt.IsNil)
+	b, err = io.ReadAll(io.NewSectionReader(pb, 0, pb.Length()))
+	qtc.Assert(err, qt.ErrorIs, squirrel.ErrNotFound)
+	qtc.Check(pb.Close(), qt.IsNil)
 }

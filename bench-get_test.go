@@ -90,7 +90,7 @@ func benchmarkReadAtEndOfBlob(b *testing.B, blobSize int, readSize int, cacheOpt
 			}
 			defer pb.Close()
 			n, err := pb.ReadAt(buf, int64(len(value)-len(buf)))
-			if err != nil {
+			if err != nil && err != io.EOF {
 				return
 			}
 			if n != len(buf) {

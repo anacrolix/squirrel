@@ -3,23 +3,38 @@ package squirrel
 import (
 	"errors"
 	"fmt"
+	"sync"
+	"time"
+
 	g "github.com/anacrolix/generics"
 	sqlite "github.com/go-llsqlite/adapter"
 	"github.com/go-llsqlite/adapter/sqlitex"
-	"sync"
-	"time"
 )
 
 type NewCacheOpts struct {
 	NewConnOpts
 	InitDbOpts
 	InitConnOpts
+	// If not-nil, this will be closed if the sqlite busy handler is invoked while initializing the
+	// Cache.
+	ConnBlockedOnBusy *chan struct{}
 }
 
 func NewCache(opts NewCacheOpts) (_ *Cache, err error) {
 	conn, err := newConn(opts.NewConnOpts)
 	if err != nil {
 		return
+	}
+	if opts.ConnBlockedOnBusy != nil {
+		returned := make(chan struct{})
+		defer close(returned)
+		go func() {
+			select {
+			case <-conn.BlockedOnBusy.On():
+				close(*opts.ConnBlockedOnBusy)
+			case <-returned:
+			}
+		}()
 	}
 	// pragma auto_vacuum=X needs to occur before pragma journal_mode=wal
 	err = initDatabase(conn, opts.InitDbOpts)

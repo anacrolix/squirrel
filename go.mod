@@ -14,10 +14,15 @@ require (
 
 require (
 	github.com/alexflint/go-scalar v1.1.0 // indirect
+	github.com/anacrolix/chansync v0.3.0 // indirect
+	github.com/anacrolix/missinggo v1.2.1 // indirect
+	github.com/anacrolix/missinggo/perf v1.0.0 // indirect
+	github.com/anacrolix/sync v0.3.0 // indirect
 	github.com/dustin/go-humanize v1.0.0 // indirect
-	github.com/go-llsqlite/crawshaw v0.0.0-20230910110433-7e901377eb6c // indirect
+	github.com/go-llsqlite/crawshaw v0.0.0-20230916104840-c3a242244fa7 // indirect
 	github.com/google/go-cmp v0.5.9 // indirect
 	github.com/google/uuid v1.3.0 // indirect
+	github.com/huandu/xstrings v1.2.0 // indirect
 	github.com/kr/pretty v0.3.1 // indirect
 	github.com/kr/text v0.2.0 // indirect
 	github.com/mattn/go-isatty v0.0.16 // indirect
