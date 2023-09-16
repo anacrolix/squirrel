@@ -1,9 +1,10 @@
 package squirrel
 
 import (
-	qt "github.com/frankban/quicktest"
 	"path/filepath"
 	"testing"
+
+	qt "github.com/frankban/quicktest"
 )
 
 func TestingNewCache(c *qt.C, opts NewCacheOpts) *Cache {

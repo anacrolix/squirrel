@@ -1,8 +1,9 @@
 package squirrel_test
 
 import (
-	"github.com/anacrolix/squirrel"
 	"testing"
+
+	"github.com/anacrolix/squirrel"
 )
 
 func benchmarkPutSmallItem(b *testing.B, cacheOpts func() squirrel.NewCacheOpts) {

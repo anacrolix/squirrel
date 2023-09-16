@@ -3,9 +3,10 @@ package squirrel
 import (
 	_ "embed"
 	"fmt"
+	"net/url"
+
 	"github.com/go-llsqlite/adapter"
 	"github.com/go-llsqlite/adapter/sqlitex"
-	"net/url"
 )
 
 type conn = *sqlite.Conn

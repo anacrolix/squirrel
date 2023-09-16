@@ -1,12 +1,13 @@
 package squirrel_test
 
 import (
-	"github.com/anacrolix/squirrel"
 	"math/rand"
 	"testing"
 	"time"
 
 	qt "github.com/frankban/quicktest"
+
+	"github.com/anacrolix/squirrel"
 )
 
 func benchCache(

@@ -2,11 +2,13 @@ package squirrel_test
 
 import (
 	"fmt"
-	g "github.com/anacrolix/generics"
-	"github.com/anacrolix/squirrel"
-	qt "github.com/frankban/quicktest"
 	"io"
 	"testing"
+
+	g "github.com/anacrolix/generics"
+	qt "github.com/frankban/quicktest"
+
+	"github.com/anacrolix/squirrel"
 )
 
 func benchCacheGets(cache *squirrel.Cache, b *testing.B) {

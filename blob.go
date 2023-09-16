@@ -3,10 +3,11 @@ package squirrel
 import (
 	"errors"
 	"fmt"
+	"time"
+
 	g "github.com/anacrolix/generics"
 	sqlite "github.com/go-llsqlite/adapter"
 	"github.com/go-llsqlite/adapter/sqlitex"
-	"time"
 )
 
 // Blobs are references to a name in a Cache that are looked up when its methods are used. They

@@ -1,13 +1,14 @@
 package squirrel
 
 import (
+	"io"
+	"testing"
+
 	"github.com/anacrolix/log"
 	qt "github.com/frankban/quicktest"
 	sqlite "github.com/go-llsqlite/adapter"
 	"github.com/go-llsqlite/adapter/sqlitex"
 	"golang.org/x/sync/errgroup"
-	"io"
-	"testing"
 )
 
 func TestConcurrentCreateBlob(t *testing.T) {

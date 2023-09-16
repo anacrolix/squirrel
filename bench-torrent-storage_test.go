@@ -4,10 +4,12 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	g "github.com/anacrolix/generics"
-	"github.com/anacrolix/squirrel"
 	"io"
 	"testing"
+
+	g "github.com/anacrolix/generics"
+
+	"github.com/anacrolix/squirrel"
 )
 
 const defaultPieceSize = 2 << 20

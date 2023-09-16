@@ -3,6 +3,7 @@ package squirrel
 import (
 	"errors"
 	"fmt"
+
 	g "github.com/anacrolix/generics"
 	sqlite "github.com/go-llsqlite/adapter"
 	"github.com/go-llsqlite/adapter/sqlitex"
