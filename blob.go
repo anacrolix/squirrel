@@ -83,7 +83,7 @@ func (b Blob) Size() (l int64, err error) {
 		return b.doWithBlob(func(blob *sqlite.Blob) error {
 			l = blob.Size()
 			return nil
-		}, true)
+		}, false)
 	})
 	return
 }
