@@ -87,6 +87,8 @@ func BenchmarkTransaction(b *testing.B) {
 func BenchmarkWriteVeryLargeBlob(b *testing.B) {
 	const valueLen = 1e9 + 1
 	b.SetBytes(valueLen)
+	cacheOpts := squirrel.TestingDefaultCacheOpts(b)
+	cacheOpts.SetJournalMode = "wal"
 	writeLargeValue := func(cache *squirrel.Cache) (err error) {
 		item, err := cache.Create(defaultKey, squirrel.CreateOpts{valueLen})
 		if err != nil {
@@ -102,7 +104,7 @@ func BenchmarkWriteVeryLargeBlob(b *testing.B) {
 	}
 	benchCache(
 		b,
-		squirrel.TestingDefaultCacheOpts(b),
+		cacheOpts,
 		writeLargeValue,
 		writeLargeValue,
 	)
