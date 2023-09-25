@@ -2,7 +2,7 @@ package squirrel
 
 import (
 	"errors"
-	"sync"
+	"github.com/anacrolix/sync"
 	"time"
 
 	"github.com/ajwerner/btree"
@@ -84,17 +84,20 @@ func NewCache(opts NewCacheOpts) (_ *Cache, err error) {
 		opts: opts,
 	}
 	cl.closeCond.L = &cl.l
-	err = cl.addConn()
-	return cl, nil
-}
-
-func (cl *Cache) addConn() (err error) {
-	conn, err := newConn(cl.opts)
+	conn, err := cl.newConn()
 	if err != nil {
 		return
 	}
+	cl.addConn(conn)
+	return cl, nil
+}
+
+func (cl *Cache) newConn() (conn, error) {
+	return newConn(cl.opts)
+}
+
+func (cl *Cache) addConn(conn conn) {
 	cl.conns = append(cl.conns, conn)
-	return nil
 }
 
 func (cl *Cache) GetCapacity() (ret int64, ok bool) {
@@ -125,10 +128,14 @@ func (cl *Cache) pushConn(conn conn) {
 func (cl *Cache) withConn(with func(conn) error) (err error) {
 	cl.l.Lock()
 	if len(cl.conns) == 0 {
-		err = cl.addConn()
+		cl.l.Unlock()
+		var conn conn
+		conn, err = cl.newConn()
 		if err != nil {
 			return
 		}
+		cl.l.Lock()
+		cl.addConn(conn)
 	}
 	conn := cl.popConn()
 	cl.connsInUse++
