@@ -30,7 +30,7 @@ func (p Blob) ReadAt(b []byte, off int64) (n int, err error) {
 }
 
 func (p Blob) WriteAt(b []byte, off int64) (n int, err error) {
-	err = p.cache.Tx(func(tx *Tx) (err error) {
+	err = p.cache.TxImmediate(func(tx *Tx) (err error) {
 		pb, err := tx.Create(p.name, CreateOpts{p.length.Unwrap()})
 		if err != nil {
 			return

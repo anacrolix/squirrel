@@ -248,6 +248,9 @@ func (conn conn) sqliteQueryMustOneRow(
 		},
 		args...,
 	)
+	if err != nil {
+		return
+	}
 	if !hadResult {
 		panic("got no results")
 	}

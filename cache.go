@@ -2,9 +2,10 @@ package squirrel
 
 import (
 	"errors"
-	"github.com/ajwerner/btree"
 	"sync"
 	"time"
+
+	"github.com/ajwerner/btree"
 
 	g "github.com/anacrolix/generics"
 	sqlite "github.com/go-llsqlite/adapter"
@@ -332,7 +333,7 @@ func (c *Cache) TxImmediate(f func(tx *Tx) error) (err error) {
 }
 
 func (c *Cache) SetTag(key, name string, value interface{}) (err error) {
-	return c.wrapTxMethod(func(tx *Tx) error {
+	return c.TxImmediate(func(tx *Tx) error {
 		return tx.SetTag(key, name, value)
 	})
 }
