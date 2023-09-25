@@ -297,7 +297,8 @@ func (conn conn) iterBlobs(
 		it.Last()
 	}
 	// Technically don't need more here yet. From here we reuse blobs, then get new ones by querying
-	// the database. What if we have some after the first few, but already started on the statement?
+	// the database. Once the statement begins, we check into the cache before creating new blobs,
+	// but keep the statement running.
 	more := true
 	for it.Valid() && it.Cur().keyId == valueId {
 		blobEnd := it.Cur().offset + it.Value().Size()
@@ -325,19 +326,25 @@ func (conn conn) iterBlobs(
 			offset := stmt.ColumnInt64(0)
 			blobId := stmt.ColumnInt64(1)
 			//log.Println(offset, blobId)
-			blob, err := conn.openBlob(blobId, write)
-			if err == nil {
-				key := valueKey{
-					keyId:  valueId,
-					offset: offset,
-				}
-				_, _, replaced := conn.blobs.Upsert(key, blob)
-				if replaced {
-					panic(key)
-				}
+			key := valueKey{
+				keyId:  valueId,
+				offset: offset,
 			}
-			if err != nil {
-				return
+			blob, ok := conn.blobs.Get(key)
+			if !ok {
+				blob, err = conn.openBlob(blobId, write)
+				if err == nil {
+					_, oldBlob, replaced := conn.blobs.Upsert(key, blob)
+					if replaced {
+						// If we close this blob before it leaks, we can clean up tests nicely
+						// despite panicking.
+						oldBlob.Close()
+						panic(key)
+					}
+				}
+				if err != nil {
+					return
+				}
 			}
 			more, err = iter(offset, blob)
 			return

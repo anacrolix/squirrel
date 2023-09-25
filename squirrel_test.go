@@ -229,3 +229,20 @@ func TestWriteVeryLargeBlob(t *testing.T) {
 	qtc.Assert(n, qt.Equals, valueLen)
 	qtc.Assert(h.Sum32(), qt.Equals, readHash.Sum32())
 }
+
+func TestIterBlobsWithHigherCachedBlobs(t *testing.T) {
+	qtc := qt.New(t)
+	cacheOpts := squirrel.TestingDefaultCacheOpts(qtc)
+	cacheOpts.MaxBlobSize.Set(1)
+	cache := squirrel.TestingNewCache(qtc, cacheOpts)
+	pb, err := cache.Create(defaultKey, squirrel.CreateOpts{Length: 2})
+	qtc.Assert(err, qt.IsNil)
+	defer pb.Close()
+	var b [2]byte
+	n, err := pb.ReadAt(b[:], 1)
+	qtc.Assert(err, qt.Satisfies, squirrelTesting.EofOrNil)
+	qtc.Assert(n, qt.Equals, 1)
+	n, err = pb.ReadAt(b[:], 0)
+	qtc.Assert(err, qt.Satisfies, squirrelTesting.EofOrNil)
+	qtc.Assert(n, qt.Equals, 2)
+}
