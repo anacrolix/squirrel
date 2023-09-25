@@ -162,11 +162,25 @@ func (c *Cache) Close() (err error) {
 // Returns a PinnedBlob. The item must already exist. You must call PinnedBlob.Close when done
 // with it.
 func (c *Cache) OpenPinnedReadOnly(name string) (ret CachePinnedBlob, err error) {
+	return c.getPinnedBlob(func(tx *Tx) (*PinnedBlob, error) {
+		return tx.OpenPinnedReadOnly(name)
+	})
+}
+
+// Returns a PinnedBlob with its own implied Tx.
+func (c *Cache) Create(name string, opts CreateOpts) (ret CachePinnedBlob, err error) {
+	return c.getPinnedBlob(func(tx *Tx) (*PinnedBlob, error) {
+		return tx.Create(name, opts)
+	})
+}
+
+// Returns a PinnedBlob with an automatic Tx. The Tx is closed when the returned value is Closed.
+func (c *Cache) getPinnedBlob(fromTx func(tx *Tx) (*PinnedBlob, error)) (ret CachePinnedBlob, err error) {
 	ready := make(chan struct{})
 	closed := false
 	go func() {
 		err = c.Tx(func(tx *Tx) (err error) {
-			pb, err := tx.OpenPinnedReadOnly(name)
+			pb, err := fromTx(tx)
 			if err != nil {
 				return
 			}
