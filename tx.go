@@ -103,6 +103,7 @@ func (tx *Tx) readFull(valueId rowid, b []byte) (n int, err error) {
 			return
 		},
 		false,
+		0,
 	)
 	if err == io.EOF {
 		if n == len(b0) {

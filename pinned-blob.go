@@ -95,6 +95,7 @@ func (pb *PinnedBlob) doIoAt(
 			return
 		},
 		write,
+		valueOff,
 	)
 	if n != 0 {
 		err = errors.Join(err, conn.accessedKey(pb.valueId, !write))

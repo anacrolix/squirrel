@@ -3,6 +3,7 @@ package squirrel
 import (
 	_ "embed"
 	"fmt"
+	g "github.com/anacrolix/generics"
 	"net/url"
 
 	"github.com/go-llsqlite/adapter"
@@ -268,31 +269,50 @@ func (conn conn) openBlob(blobId rowid, write bool) (*sqlite.Blob, error) {
 	return openSqliteBlob(conn.sqliteConn, blobId, write)
 }
 
+func sqlQuery(query string) string {
+	return query
+}
+
 // TODO: Add optimization to skip to first blob that includes an offset
 func (conn conn) iterBlobs(
 	valueId rowid,
 	iter func(offset int64, blob *sqlite.Blob) (more bool, err error),
 	write bool,
+	startOffset int64,
 ) (err error) {
 	more := true
+	var blob g.Option[*sqlite.Blob]
 	err = conn.sqliteQuery(
-		`select offset, blob_id from "values" where value_id=? order by offset`,
+		sqlQuery(`
+			select offset, blob_id 
+			from "values" join blobs using (blob_id) 
+			where value_id=? and offset+length(blob) > ?
+			order by offset`,
+		),
 		func(stmt *sqlite.Stmt) (err error) {
 			if !more {
 				return
 			}
 			offset := stmt.ColumnInt64(0)
 			blobId := stmt.ColumnInt64(1)
-			blob, err := conn.openBlob(blobId, write)
+			if !blob.Ok {
+				blob.Value, err = conn.openBlob(blobId, write)
+				blob.Ok = err == nil
+			} else {
+				err = blob.Value.Reopen(blobId)
+			}
 			if err != nil {
 				return
 			}
-			more, err = iter(offset, blob)
-			blob.Close()
+			more, err = iter(offset, blob.Unwrap())
 			return
 		},
 		valueId,
+		startOffset,
 	)
+	if blob.Ok {
+		blob.Value.Close()
+	}
 	return
 }
 
@@ -364,12 +384,14 @@ func (conn conn) sqliteExec(query string, args ...any) error {
 }
 
 func (conn conn) accessedKey(keyId rowid, ignoreBusy bool) (err error) {
-	err = conn.sqliteExec(`
-		update keys
+	err = conn.sqliteExec(
+		sqlQuery(`
+			update keys
 			set 
-		    	last_used=cast(unixepoch('subsec')*1e3 as integer),
-		    	access_count=access_count+1
+				last_used=cast(unixepoch('subsec')*1e3 as integer),
+				access_count=access_count+1
 			where key_id=?`,
+		),
 		keyId,
 	)
 	if ignoreBusy && sqlite.IsResultCode(err, sqlite.ResultCodeBusy) {
