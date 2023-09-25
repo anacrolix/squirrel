@@ -116,18 +116,22 @@ func BenchmarkReadAtEndOfBlob(b *testing.B) {
 			opts.RequireAutoVacuum = g.Some[any](1)
 		}},
 	}
-	startNestedBenchmark(b,
+	startNestedBenchmark(
+		b,
 		func(b testing.TB) squirrel.NewCacheOpts {
 			cacheOpts := squirrel.TestingDefaultCacheOpts(b)
 			// This needs to be significantly less than the blob size or the linked list of pages
 			// will be cached.
 			cacheOpts.CacheSize = g.Some[int64](-1 << 10) // 1 MiB
+			cacheOpts.PageSize = 4096
+			cacheOpts.MaxBlobSize.Set(1e9)
 			return cacheOpts
 		},
 		func(b *testing.B, opts func() squirrel.NewCacheOpts) {
-			benchmarkReadAtEndOfBlob(b, 4<<20, 4<<10, opts())
+			benchmarkReadAtEndOfBlob(b, 32<<20, 4<<10, opts())
 		},
-		autoVacuums)
+		autoVacuums,
+	)
 }
 
 type nestedBench struct {
