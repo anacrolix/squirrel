@@ -9,13 +9,21 @@ import (
 	"github.com/go-llsqlite/adapter/sqlitex"
 )
 
-type conn = *sqlite.Conn
+type sqliteConn = *sqlite.Conn
 
-func initConn(conn conn, opts InitConnOpts, pageSize int) (err error) {
-	err = sqlitex.ExecTransient(conn, "pragma foreign_keys=on", nil)
-	if err != nil {
-		return err
-	}
+type connStruct struct {
+	sqliteConn  sqliteConn
+	blobs       map[rowid]*sqlite.Blob
+	maxBlobSize maxBlobSizeType
+}
+
+func (c conn) Close() error {
+	return c.sqliteConn.Close()
+}
+
+type conn connStruct
+
+func initConn(conn sqliteConn, opts InitConnOpts, pageSize int) (err error) {
 	err = setSynchronous(conn, opts.SetSynchronous)
 	if err != nil {
 		return
@@ -70,7 +78,7 @@ func initConn(conn conn, opts InitConnOpts, pageSize int) (err error) {
 	return
 }
 
-func setPageSize(conn conn, pageSize int) error {
+func setPageSize(conn sqliteConn, pageSize int) error {
 	if pageSize == 0 {
 		return nil
 	}
@@ -84,7 +92,7 @@ var (
 	initTriggers string
 )
 
-func InitSchema(conn conn, pageSize int, triggers bool) (err error) {
+func InitSchema(conn sqliteConn, pageSize int, triggers bool) (err error) {
 	err = setPageSize(conn, pageSize)
 	if err != nil {
 		return fmt.Errorf("setting page size: %w", err)
@@ -108,12 +116,12 @@ func InitSchema(conn conn, pageSize int, triggers bool) (err error) {
 }
 
 // Remove any capacity limits.
-func unlimitCapacity(conn conn) error {
+func unlimitCapacity(conn sqliteConn) error {
 	return sqlitex.Exec(conn, "delete from setting where name='capacity'", nil)
 }
 
 // Set the capacity limit to exactly this value.
-func setCapacity(conn conn, cap int64) error {
+func setCapacity(conn sqliteConn, cap int64) error {
 	return sqlitex.Exec(conn, "insert into setting values ('capacity', ?)", nil, cap)
 }
 
@@ -131,7 +139,7 @@ func newOpenUri(opts NewConnOpts) string {
 	return fmt.Sprintf("file:%s?%s", path, values.Encode())
 }
 
-func initDatabase(conn conn, opts InitDbOpts) (err error) {
+func initDatabase(conn sqliteConn, opts InitDbOpts) (err error) {
 	if opts.SetAutoVacuum.Ok {
 		// This needs to occur before setting journal mode to WAL.
 		err = setAndMaybeVerifyPragma(
@@ -179,8 +187,193 @@ const openConnFlags = 0 |
 	sqlite.OpenURI |
 	sqlite.OpenNoMutex
 
-func newConn(opts NewConnOpts) (conn, error) {
+func newSqliteConn(opts NewConnOpts) (sqliteConn, error) {
 	uri := newOpenUri(opts)
 	//log.Printf("opening sqlite conn with uri %q", uri)
 	return sqlite.OpenConn(uri, openConnFlags)
+}
+
+func (conn conn) getValueIdForKey(key string) (ret rowid, err error) {
+	keyCols, err := conn.openKey(key)
+	ret = keyCols.id
+	return
+}
+
+func (conn conn) sqliteQuery(query string, result func(stmt *sqlite.Stmt) error, args ...any) error {
+	return sqlitex.Exec(conn.sqliteConn, query, result, args...)
+}
+
+// Wraps sqliteQueryRow, without returning the ok bool.
+func (conn conn) sqliteQueryMaxOneRow(query string, result func(stmt *sqlite.Stmt) error, args ...any) (err error) {
+	_, err = conn.sqliteQueryRow(query, result, args...)
+	return
+}
+
+// Executes sqlite query, panicking if there's more than one row. Returns ok if a row matched.
+func (conn conn) sqliteQueryRow(
+	query string,
+	result func(stmt *sqlite.Stmt) error,
+	args ...any,
+) (ok bool, err error) {
+	err = conn.sqliteQuery(
+		query,
+		func(stmt *sqlite.Stmt) error {
+			if ok {
+				panic("got more than one row")
+			}
+			ok = true
+			return result(stmt)
+		},
+		args...,
+	)
+	return
+}
+
+func (conn conn) sqliteQueryMustOneRow(
+	query string,
+	result func(stmt *sqlite.Stmt) error,
+	args ...any,
+) (err error) {
+	hadResult := false
+	err = conn.sqliteQuery(
+		query,
+		func(stmt *sqlite.Stmt) error {
+			if hadResult {
+				panic("got more than one row")
+			}
+			hadResult = true
+			return result(stmt)
+		},
+		args...,
+	)
+	if !hadResult {
+		panic("got no results")
+	}
+	return
+}
+
+func (conn conn) getValueLength(key string) (length int64, err error) {
+	err = conn.sqliteQuery(
+		`select length from keys where key=?`,
+		func(stmt *sqlite.Stmt) error {
+			length = stmt.ColumnInt64(0)
+			return nil
+		},
+		key,
+	)
+	return
+}
+
+func (conn conn) openBlob(blobId rowid, write bool) (*sqlite.Blob, error) {
+	return openSqliteBlob(conn.sqliteConn, blobId, write)
+}
+
+// TODO: Add optimization to skip to first blob that includes an offset
+func (conn conn) iterBlobs(
+	valueId rowid,
+	iter func(offset int64, blob *sqlite.Blob) (more bool, err error),
+	write bool,
+) (err error) {
+	more := true
+	err = conn.sqliteQuery(
+		`select offset, blob_id from "values" where value_id=? order by offset`,
+		func(stmt *sqlite.Stmt) (err error) {
+			if !more {
+				return
+			}
+			offset := stmt.ColumnInt64(0)
+			blobId := stmt.ColumnInt64(1)
+			blob, err := conn.openBlob(blobId, write)
+			if err != nil {
+				return
+			}
+			more, err = iter(offset, blob)
+			blob.Close()
+			return
+		},
+		valueId,
+	)
+	return
+}
+
+func (conn conn) openKey(key string) (ret keyCols, err error) {
+	ok, err := conn.sqliteQueryRow(
+		`select key_id, length from keys where key=?`,
+		func(stmt *sqlite.Stmt) error {
+			ret.id = stmt.ColumnInt64(0)
+			ret.length = stmt.ColumnInt64(1)
+			return nil
+		},
+		key,
+	)
+	if err != nil {
+		return
+	}
+	if !ok {
+		err = ErrNotFound
+	}
+	return
+}
+
+func (conn conn) createKey(key string, create CreateOpts) (keyId rowid, err error) {
+	cols, err := conn.openKey(key)
+	if err != ErrNotFound {
+		keyId = cols.id
+		return
+	}
+	err = conn.sqliteQueryMustOneRow(
+		`insert into keys (key, length) values (?, ?) returning key_id`,
+		func(stmt *sqlite.Stmt) error {
+			keyId = stmt.ColumnInt64(0)
+			return nil
+		},
+		key,
+		create.Length,
+	)
+	if err != nil {
+		return
+	}
+	for off := int64(0); off < create.Length; off += conn.maxBlobSize {
+		blobSize := create.Length - off
+		if blobSize > conn.maxBlobSize {
+			blobSize = conn.maxBlobSize
+		}
+		err = conn.sqliteExec(
+			`insert into blobs (blob) values (zeroblob(?))`,
+			blobSize,
+		)
+		if err != nil {
+			panic(err)
+		}
+		blobId := conn.sqliteConn.LastInsertRowID()
+		err = conn.sqliteExec(
+			`insert into "values" (value_id, offset, blob_id) values (?, ?, ?)`,
+			keyId, off, blobId,
+		)
+		if err != nil {
+			panic(err)
+		}
+	}
+	return
+}
+
+const defaultMaxBlobSize int64 = 1 << 20
+
+func (conn conn) sqliteExec(query string, args ...any) error {
+	return conn.sqliteQuery(query, nil, args...)
+}
+
+func (conn conn) accessedKey(keyId rowid, ignoreBusy bool) (err error) {
+	err = conn.sqliteExec(`
+		update keys
+			set 
+		    	last_used=cast(unixepoch('subsec')*1e3 as integer),
+		    	access_count=access_count+1
+			where key_id=?`,
+		keyId,
+	)
+	if ignoreBusy && sqlite.IsResultCode(err, sqlite.ResultCodeBusy) {
+		err = nil
+	}
+	return
 }

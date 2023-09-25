@@ -1,106 +1,145 @@
 package squirrel
 
 import (
-	g "github.com/anacrolix/generics"
+	"errors"
 	sqlite "github.com/go-llsqlite/adapter"
-	"github.com/go-llsqlite/adapter/sqlitex"
+	"io"
 )
 
 type Tx struct {
-	c *Cache
+	conn conn
 }
 
 type CreateOpts struct {
 	Length int64
 }
 
-func (tx *Tx) Create(name string, opts CreateOpts) (*PinnedBlob, error) {
-	return tx.openBlob(name, g.Some(opts.Length))
-}
-
-func (tx *Tx) Open(name string) (pb *PinnedBlob, err error) {
-	return tx.openBlob(name, g.None[int64]())
-}
-
-func (tx *Tx) openBlob(name string, length g.Option[int64]) (pb *PinnedBlob, err error) {
-	blob, rowid, err := tx.c.getBlob(
-		name,
-		length.Ok,
-		length.UnwrapOr(-1),
-		true,
-		g.None[rowid](),
-		true,
-	)
+func (tx *Tx) Create(name string, opts CreateOpts) (pb *PinnedBlob, err error) {
+	keyId, err := tx.conn.createKey(name, opts)
 	if err != nil {
 		return
 	}
 	pb = &PinnedBlob{
-		key:   name,
-		rowid: rowid,
-		blob:  blob,
-		c:     tx.c,
-		tx:    tx,
+		key:     name,
+		write:   true,
+		tx:      tx,
+		valueId: keyId,
+	}
+	return
+}
+
+func (tx *Tx) Open(name string) (pb *PinnedBlob, err error) {
+	var keyId setOnce[rowid]
+	err = tx.conn.sqliteQuery(
+		`select key_id from keys where key=?`,
+		func(stmt *sqlite.Stmt) error {
+			keyId.Set(stmt.ColumnInt64(0))
+			return nil
+		},
+		name,
+	)
+	pb = &PinnedBlob{
+		key:     name,
+		write:   true,
+		tx:      tx,
+		valueId: keyId.Value(),
 	}
 	return
 }
 
 func (tx *Tx) Put(name string, b []byte) (err error) {
-	// TODO: Reuse blobs cached in the Tx, with reopen?
-	blob, _, err := tx.c.getBlob(name, true, int64(len(b)), true, g.None[rowid](), true)
+	err = tx.Delete(name)
+	if err != nil && err != ErrNotFound {
+		return
+	}
+	pb, err := tx.Create(name, CreateOpts{int64(len(b))})
 	if err != nil {
 		return
 	}
-	_, err = blobWriteAt(blob, b, 0)
-	closeErr := blob.Close()
-	if closeErr != nil {
-		panic(closeErr)
+	_, err = pb.WriteAt(b, 0)
+	err = errors.Join(err, pb.Close())
+	return
+}
+
+func (tx *Tx) ReadAll(key string, b []byte) (ret []byte, err error) {
+	conn := tx.conn
+	keyCols, err := conn.openKey(key)
+	if err != nil {
+		return
 	}
+	if int64(len(b)) < keyCols.length {
+		b = make([]byte, keyCols.length)
+	} else {
+		b = b[:keyCols.length]
+	}
+	n, err := tx.readFull(keyCols.id, b)
+	ret = b[:n]
 	return
 }
 
 func (tx *Tx) ReadFull(key string, b []byte) (n int, err error) {
-	c := tx.c
-	blobDataId, err := c.accessBlob(key)
+	valueId, err := tx.conn.getValueIdForKey(key)
 	if err != nil {
 		return
 	}
-	err = sqlitex.Exec(
-		c.conn,
-		`select data from blob_data where data_id=?`,
-		func(stmt *sqlite.Stmt) error {
-			n = stmt.ColumnBytes(0, b)
-			return nil
+	return tx.readFull(valueId, b)
+}
+
+func (tx *Tx) readFull(valueId rowid, b []byte) (n int, err error) {
+	var nextOff int64
+	b0 := b
+	err = tx.conn.iterBlobs(
+		valueId,
+		func(offset int64, blob *sqlite.Blob) (more bool, err error) {
+			if offset > nextOff {
+				err = io.EOF
+				return
+			}
+			n1, err := blob.ReadAt(b, nextOff-offset)
+			n += n1
+			b = b[n1:]
+			nextOff += int64(n1)
+			more = len(b) != 0
+			return
 		},
-		blobDataId,
+		false,
 	)
+	if err == io.EOF {
+		if n == len(b0) {
+			err = nil
+		} else {
+			err = io.ErrUnexpectedEOF
+		}
+	}
 	return
 }
 
 func (tx *Tx) SetTag(key, name string, value any) (err error) {
-	return sqlitex.Exec(
-		tx.c.conn,
-		"insert or replace into tag (blob_name, tag_name, value) values (?, ?, ?)",
+	cols, err := tx.conn.openKey(key)
+	if err != nil {
+		return
+	}
+	return tx.conn.sqliteQuery(
+		"insert or replace into tags (key_id, tag_name, value) values (?, ?, ?)",
 		nil,
-		key,
+		cols.id,
 		name,
 		value,
 	)
 }
 
 func (tx *Tx) Delete(name string) error {
-	return sqlitex.Execute(tx.c.conn, "delete from blob where name=?", &sqlitex.ExecOptions{
-		Args: []interface{}{name},
-	})
+	return tx.conn.sqliteQuery("delete from keys where key=?", nil, name)
 }
 
 // Returns a PinnedBlob. The item must already exist. You must call PinnedBlob.Close when done
 // with it.
 func (tx *Tx) OpenPinned(name string) (ret *PinnedBlob, err error) {
-	return tx.c.openPinned(name, true, tx)
+	return tx.openPinned(name, true)
 }
 
 // Returns a PinnedBlob. The item must already exist. You must call PinnedBlob.Close when done
 // with it.
 func (tx *Tx) OpenPinnedReadOnly(name string) (ret *PinnedBlob, err error) {
-	return tx.c.openPinned(name, false, tx)
+	return tx.openPinned(name, false)
 }

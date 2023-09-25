@@ -2,8 +2,9 @@ package squirrel_test
 
 import (
 	"context"
-	"errors"
+	squirrelTesting "github.com/anacrolix/squirrel/internal/testing"
 	"io"
+	"log"
 	"testing"
 	"time"
 
@@ -15,17 +16,16 @@ import (
 	"github.com/anacrolix/squirrel"
 )
 
-func errorIs(target error) func(error) bool {
-	return func(err error) bool {
-		return errors.Is(err, target)
-	}
+func init() {
+	log.SetFlags(log.Flags() | log.Lshortfile)
+	log.SetPrefix("std log: ")
 }
 
 func TestBlobWriteOutOfBounds(t *testing.T) {
 	c := qt.New(t)
 	cache := squirrel.TestingNewCache(c, squirrel.NewCacheOpts{})
 	_, err := cache.OpenPinnedReadOnly("greeting")
-	c.Check(err, qt.Satisfies, errorIs(squirrel.ErrNotFound))
+	c.Check(err, qt.ErrorIs, squirrel.ErrNotFound)
 	b := cache.BlobWithLength("greeting", 6)
 	n, err := b.WriteAt([]byte("hello "), 0)
 	c.Assert(err, qt.IsNil)
@@ -126,7 +126,7 @@ func testReadOnlyPinned(
 	qtc.Check(beforeRead.UnixMilli(), qt.Equals, lastUsed.UnixMilli())
 	waitSqliteSubsec()
 	b2, err := io.ReadAll(io.NewSectionReader(r2, 0, r2.Length()))
-	qtc.Assert(err, qt.IsNil)
+	qtc.Assert(err, qt.Satisfies, squirrelTesting.EofOrNil)
 	qtc.Check(b2, qt.DeepEquals, value)
 	afterRead, err := r2.LastUsed()
 	qtc.Assert(err, qt.IsNil)
@@ -179,19 +179,29 @@ func TestNewCacheWaitsForWrite(t *testing.T) {
 
 func TestTxWhileOpenedPinnedBlob(t *testing.T) {
 	qtc := qt.New(t)
-	cache := squirrel.TestingNewCache(qtc, squirrel.TestingDefaultCacheOpts(qtc))
+	cacheOpts := squirrel.TestingDefaultCacheOpts(qtc)
+	cacheOpts.SetJournalMode = "wal"
+	cache := squirrel.TestingNewCache(qtc, cacheOpts)
 	err := cache.Put(defaultKey, defaultValue)
 	qtc.Assert(err, qt.IsNil)
 	pb, err := cache.OpenPinnedReadOnly(defaultKey)
 	qtc.Assert(err, qt.IsNil)
-	b, err := io.ReadAll(io.NewSectionReader(pb, 0, pb.Length()))
-	qtc.Assert(err, qt.IsNil)
-	qtc.Assert(b, qt.DeepEquals, defaultValue)
-	err = cache.Tx(func(tx *squirrel.Tx) error {
-		return tx.Delete(defaultKey)
+	eg, _ := errgroup.WithContext(context.Background())
+	txStarted := make(chan struct{})
+	eg.Go(func() error {
+		return cache.Tx(func(tx *squirrel.Tx) error {
+			close(txStarted)
+			return tx.Delete(defaultKey)
+		})
 	})
-	qtc.Check(err, qt.IsNil)
-	b, err = io.ReadAll(io.NewSectionReader(pb, 0, pb.Length()))
+	<-txStarted
+	b, err := io.ReadAll(io.NewSectionReader(pb, 0, pb.Length()))
+	qtc.Assert(err, qt.Satisfies, squirrelTesting.EofOrNil)
+	qtc.Assert(b, qt.DeepEquals, defaultValue)
+	err = pb.Close()
+	qtc.Assert(err, qt.IsNil)
+	err = eg.Wait()
+	qtc.Assert(err, qt.IsNil)
+	pb, err = cache.OpenPinnedReadOnly(defaultKey)
 	qtc.Assert(err, qt.ErrorIs, squirrel.ErrNotFound)
-	qtc.Check(pb.Close(), qt.IsNil)
 }

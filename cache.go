@@ -2,7 +2,6 @@ package squirrel
 
 import (
 	"errors"
-	"fmt"
 	"sync"
 	"time"
 
@@ -20,8 +19,8 @@ type NewCacheOpts struct {
 	ConnBlockedOnBusy *chan struct{}
 }
 
-func NewCache(opts NewCacheOpts) (_ *Cache, err error) {
-	conn, err := newConn(opts.NewConnOpts)
+func newConn(opts NewCacheOpts) (ret conn, err error) {
+	conn, err := newSqliteConn(opts.NewConnOpts)
 	if err != nil {
 		return
 	}
@@ -36,6 +35,10 @@ func NewCache(opts NewCacheOpts) (_ *Cache, err error) {
 			}
 		}()
 	}
+	err = sqlitex.ExecTransient(conn, "pragma foreign_keys=on", nil)
+	if err != nil {
+		return
+	}
 	// pragma auto_vacuum=X needs to occur before pragma journal_mode=wal
 	err = initDatabase(conn, opts.InitDbOpts)
 	if err != nil {
@@ -47,37 +50,88 @@ func NewCache(opts NewCacheOpts) (_ *Cache, err error) {
 		conn.Close()
 		return
 	}
+	ret.sqliteConn = conn
+	g.MakeMap(&ret.blobs)
+	ret.maxBlobSize = opts.MaxBlobSize.UnwrapOr(defaultMaxBlobSize)
+	return
+}
+
+func NewCache(opts NewCacheOpts) (_ *Cache, err error) {
 	cl := &Cache{
-		conn: conn,
 		opts: opts,
 	}
-	cl.tx.c = cl
+	cl.closeCond.L = &cl.l
+	err = cl.addConn()
 	return cl, nil
 }
 
-func (cl *Cache) GetCapacity() (ret int64, ok bool) {
-	cl.l.Lock()
-	defer cl.l.Unlock()
-	if cl.getCacheErr() != nil {
+func (cl *Cache) addConn() (err error) {
+	conn, err := newConn(cl.opts)
+	if err != nil {
 		return
 	}
-	err := sqlitex.Exec(cl.conn, "select value from setting where name='capacity'", func(stmt *sqlite.Stmt) error {
-		ok = true
-		ret = stmt.ColumnInt64(0)
-		return nil
-	})
+	cl.conns = append(cl.conns, conn)
+	return nil
+}
+
+func (cl *Cache) GetCapacity() (ret int64, ok bool) {
+	err := cl.execWithConn(
+		"select value from setting where name='capacity'",
+		func(stmt *sqlite.Stmt) error {
+			ok = true
+			ret = stmt.ColumnInt64(0)
+			return nil
+		},
+	)
 	if err != nil {
 		panic(err)
 	}
 	return
 }
 
+func (cl *Cache) popConn() (ret conn) {
+	ret = cl.conns[len(cl.conns)-1]
+	cl.conns = cl.conns[:len(cl.conns)-1]
+	return
+}
+
+func (cl *Cache) pushConn(conn conn) {
+	cl.conns = append(cl.conns, conn)
+}
+
+func (cl *Cache) withConn(with func(conn) error) (err error) {
+	cl.l.Lock()
+	if len(cl.conns) == 0 {
+		err = cl.addConn()
+		if err != nil {
+			return
+		}
+	}
+	conn := cl.popConn()
+	cl.connsInUse++
+	cl.l.Unlock()
+	err = with(conn)
+	cl.l.Lock()
+	cl.pushConn(conn)
+	cl.connsInUse--
+	cl.closeCond.Broadcast()
+	cl.l.Unlock()
+	return
+}
+
+func (cl *Cache) execWithConn(query string, result func(stmt *sqlite.Stmt) error) (err error) {
+	return cl.withConn(func(c conn) error {
+		return sqlitex.Exec(c.sqliteConn, query, result)
+	})
+}
+
 type Cache struct {
-	l      sync.RWMutex
-	conn   conn
-	opts   NewCacheOpts
-	closed bool
-	tx     Tx
+	l          sync.RWMutex
+	conns      []conn
+	connsInUse int
+	opts       NewCacheOpts
+	closeCond  sync.Cond
+	closed     bool
 }
 
 func (c *Cache) getCacheErr() error {
@@ -92,34 +146,76 @@ func (c *Cache) Close() (err error) {
 	defer c.l.Unlock()
 	if !c.closed {
 		c.closed = true
-		err = c.conn.Close()
-		c.conn = nil
+		for {
+			for len(c.conns) != 0 {
+				err = errors.Join(err, c.popConn().Close())
+			}
+			if c.connsInUse == 0 {
+				break
+			}
+			c.closeCond.Wait()
+		}
 	}
 	return
 }
 
 // Returns a PinnedBlob. The item must already exist. You must call PinnedBlob.Close when done
 // with it.
-func (c *Cache) OpenPinnedReadOnly(name string) (ret *PinnedBlob, err error) {
-	c.l.Lock()
-	defer c.l.Unlock()
-	err = c.getCacheErr()
-	if err != nil {
-		return
-	}
-	return c.openPinned(name, false, nil)
+func (c *Cache) OpenPinnedReadOnly(name string) (ret CachePinnedBlob, err error) {
+	ready := make(chan struct{})
+	closed := false
+	go func() {
+		err = c.Tx(func(tx *Tx) (err error) {
+			pb, err := tx.OpenPinnedReadOnly(name)
+			if err != nil {
+				return
+			}
+			finishTx := make(chan struct{})
+			ret.finishTx = sync.OnceFunc(func() {
+				close(finishTx)
+			})
+			ret.PinnedBlob = pb
+			close(ready)
+			closed = true
+			<-finishTx
+			return nil
+		})
+		if err != nil {
+			if closed {
+				panic(err)
+			}
+			closed = true
+			close(ready)
+		}
+	}()
+	<-ready
+	return
+}
+
+type CachePinnedBlob struct {
+	*PinnedBlob
+	finishTx func()
+}
+
+func (me CachePinnedBlob) Close() (err error) {
+	err = me.PinnedBlob.Close()
+	me.finishTx()
+	return
 }
 
 // Returns a PinnedBlob. The item must already exist. You must call PinnedBlob.Close when done
 // with it.
-func (c *Cache) openPinned(name string, write bool, tx *Tx) (ret *PinnedBlob, err error) {
-	ret = &PinnedBlob{
-		key:   name,
-		c:     c,
-		tx:    tx,
-		write: write,
+func (tx *Tx) openPinned(name string, write bool) (ret *PinnedBlob, err error) {
+	valueId, err := tx.conn.getValueIdForKey(name)
+	if err != nil {
+		return
 	}
-	ret.blob, ret.rowid, err = c.getBlob(name, false, -1, false, g.None[int64](), write)
+	ret = &PinnedBlob{
+		key:     name,
+		tx:      tx,
+		write:   write,
+		valueId: valueId,
+	}
 	return
 }
 
@@ -154,32 +250,6 @@ func (c *Cache) Put(name string, b []byte) (err error) {
 
 var ErrNotFound = errors.New("not found")
 
-func (c *Cache) accessBlob(key string) (dataId rowid, err error) {
-	var blobDataId setOnce[rowid]
-	err = sqlitex.Exec(
-		c.conn, `
-		update blob
-			set 
-		    	last_used=cast(unixepoch('subsec')*1e3 as integer),
-		    	access_count=access_count+1
-			where name=?
-			returning data_id`,
-		func(stmt *sqlite.Stmt) error {
-			blobDataId.Set(stmt.ColumnInt64(0))
-			return nil
-		},
-		key,
-	)
-	if err != nil {
-		return
-	}
-	if !blobDataId.Ok() {
-		err = ErrNotFound
-	}
-	dataId = blobDataId.value
-	return
-}
-
 func (c *Cache) ReadFull(key string, b []byte) (n int, err error) {
 	err = c.wrapTxMethod(func(tx *Tx) error {
 		n, err = tx.ReadFull(key, b)
@@ -188,23 +258,31 @@ func (c *Cache) ReadFull(key string, b []byte) (n int, err error) {
 	return
 }
 
+func (c *Cache) ReadAll(key string, b []byte) (ret []byte, err error) {
+	err = c.wrapTxMethod(func(tx *Tx) error {
+		ret, err = tx.ReadAll(key, b)
+		return err
+	})
+	return
+}
+
 func (c *Cache) runTx(f func(tx *Tx) error, level string) (err error) {
-	c.l.Lock()
-	defer c.l.Unlock()
-	err = c.getCacheErr()
-	if err != nil {
+	err = c.withConn(func(c conn) (err error) {
+		err = sqlitex.Exec(c.sqliteConn, "begin "+level, nil)
+		if err != nil {
+			return
+		}
+		err = f(&Tx{c})
+		if err == nil {
+			err = sqlitex.Exec(c.sqliteConn, "commit", nil)
+		} else {
+			rollbackErr := sqlitex.Exec(c.sqliteConn, "rollback", nil)
+			if rollbackErr != nil {
+				err = errors.Join(err, rollbackErr)
+			}
+		}
 		return
-	}
-	err = sqlitex.Exec(c.conn, "begin "+level, nil)
-	if err != nil {
-		return
-	}
-	err = f(&c.tx)
-	if err == nil {
-		err = sqlitex.Exec(c.conn, "commit", nil)
-	} else {
-		err = errors.Join(err, sqlitex.Exec(c.conn, "rollback", nil))
-	}
+	})
 	return
 }
 
@@ -228,70 +306,46 @@ func (c *Cache) wrapTxMethod(txCall func(tx *Tx) error) error {
 	})
 }
 
-func (c *Cache) openBlob(rowid int64, write bool) (*sqlite.Blob, error) {
-	return c.conn.OpenBlob("main", "blob_data", "data", rowid, write)
+func openSqliteBlob(sc sqliteConn, rowid rowid, write bool) (*sqlite.Blob, error) {
+	return sc.OpenBlob("main", "blobs", "blob", rowid, write)
 }
 
-func (c *Cache) getBlob(
-	name string,
-	create bool,
-	length int64,
-	clobberLength bool,
-	rowidHint g.Option[int64],
-	write bool,
-) (blob *sqlite.Blob, rowid rowid, err error) {
-	if rowidHint.Ok {
-		blob, err = c.openBlob(rowidHint.Value, write)
-		if err == nil {
-			rowid = rowidHint.Value
-		} else if sqlite.IsResultCode(err, sqlite.ResultCodeGenericError) {
-			err = nil
-			blob = nil
-		} else {
-			panic(err)
-		}
-	}
-	if blob == nil {
-		var existingLength int64
-		var ok bool
-		rowid, existingLength, ok, err = rowidForBlob(c.conn, name)
-		// log.Printf("got rowid %v, existing length %v, ok %v", rowid, existingLength, ok)
-		if err != nil {
-			err = fmt.Errorf("getting rowid for blob: %w", err)
-			return
-		}
-		if !ok && !create {
-			err = ErrNotFound
-			return
-		}
-		if !ok || (clobberLength && existingLength != length) {
-			rowid, err = createBlob(c.conn, name, length, ok && clobberLength && length != existingLength)
-			if err != nil {
-				err = fmt.Errorf("creating blob: %w", err)
-				return
-			}
-		}
-		blob, err = c.openBlob(rowid, write)
-		if err != nil {
-			panic(err)
-		}
-	}
-	return blob, rowid, nil
+func timeFromStmtColumn(stmt *sqlite.Stmt, col int) time.Time {
+	unixMs := stmt.ColumnInt64(col)
+	return time.UnixMilli(unixMs)
 }
 
-func (c *Cache) lastUsed(key string) (lastUsed time.Time, err error) {
-	var unixMs setOnce[int64]
-	err = sqlitex.Exec(
-		c.conn,
-		`select last_used from blob where name=?`,
+func (c conn) lastUsed(rowid rowid) (lastUsed time.Time, err error) {
+	ok, err := c.sqliteQueryRow(
+		`select last_used from keys where key_id=?`,
 		func(stmt *sqlite.Stmt) error {
-			unixMs.Set(stmt.ColumnInt64(0))
-			lastUsed = time.UnixMilli(unixMs.value)
+			lastUsed = timeFromStmtColumn(stmt, 0)
+			return nil
+		},
+		rowid,
+	)
+	if err != nil {
+		return
+	}
+	if !ok {
+		err = ErrNotFound
+	}
+	return
+}
+
+func (c conn) lastUsedByKey(key string) (lastUsed time.Time, err error) {
+	ok, err := c.sqliteQueryRow(
+		`select last_used from keys where key=?`,
+		func(stmt *sqlite.Stmt) error {
+			lastUsed = timeFromStmtColumn(stmt, 0)
 			return nil
 		},
 		key,
 	)
-	if !unixMs.ok {
+	if err != nil {
+		return
+	}
+	if !ok {
 		err = ErrNotFound
 	}
 	return

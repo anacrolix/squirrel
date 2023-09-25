@@ -1,66 +1,47 @@
-create table if not exists blob (
-    name text primary key,
-    store_time integer not null default (cast(unixepoch('subsec')*1e3 as integer)),
+create table if not exists keys (
+    key_id integer primary key,
+    key text unique,
+    length integer not null,
+    create_time integer not null default (cast(unixepoch('subsec')*1e3 as integer)),
     last_used integer not null default (cast(unixepoch('subsec')*1e3 as integer)),
-    access_count integer not null default 0,
-    data_id integer not null references blob_data(data_id) on delete cascade
+    access_count integer not null default 0
 ) strict;
 
-create table if not exists blob_data (
-    data_id integer primary key,
-    data blob not null
+create table if not exists "values" (
+    value_id integer not null references keys(key_id) on delete cascade,
+    offset integer not null,
+    blob_id integer not null unique,
+    primary key (value_id, offset)
 ) strict;
 
-create table if not exists blob_meta (
+create table if not exists blobs (
+    blob_id integer not null primary key
+        references "values"(blob_id) on delete cascade
+        -- This lets us create the blob first, then attach it to "values".
+        deferrable initially deferred,
+    blob blob not null
+) strict;
+
+create table if not exists cache_meta (
     key text primary key,
     value
 ) without rowid;
 
-create index if not exists blob_last_used on blob(last_used, access_count, data_id);
+create index if not exists blob_last_used on keys(last_used, access_count, key_id);
 
 -- While sqlite *seems* to be faster to get sum(length(data)) instead of
 -- sum(length(data)), it may still require a large table scan at start-up or with a
 -- cold-cache. With this we can be assured that it doesn't.
-insert or ignore into blob_meta values ('size', 0);
+insert or ignore into cache_meta values ('size', 0);
 
 create table if not exists setting (
     name primary key on conflict replace,
     value
 ) without rowid;
 
-create table if not exists tag (
-    blob_name references blob(name) on delete cascade,
-    tag_name,
-    value,
-    primary key (blob_name, tag_name)
-) without rowid;
-
-create view if not exists deletable_blob as
-with recursive excess (
-    usage_with,
-    last_used,
-    blob_data_id,
-    data_length
-) as (
-    select *
-    from (
-        select
-            (select value from blob_meta where key='size') as usage_with,
-            last_used,
-            data_id,
-            length(data)
-        from blob join blob_data using (data_id) order by last_used, access_count, data_id limit 1
-    )
-    where usage_with > (select value from setting where name='capacity')
-    union all
-    select
-        usage_with-data_length as new_usage_with,
-        blob.last_used,
-        blob.data_id,
-        length(data)
-    from excess join blob
-    on blob.data_id=(select data_id from blob where (last_used, data_id) > (excess.last_used, blob_data_id))
-    join blob_data using (data_id)
-    where new_usage_with > (select value from setting where name='capacity')
-)
-select * from excess;
+create table if not exists tags (
+    key_id integer references keys(key_id) on delete cascade,
+    tag_name any,
+    value any,
+    primary key (key_id, tag_name)
+) strict, without rowid;

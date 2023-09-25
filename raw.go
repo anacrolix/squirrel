@@ -5,7 +5,7 @@ import (
 	"github.com/go-llsqlite/adapter/sqlitex"
 )
 
-func createBlob(c conn, name string, length int64, clobber bool) (rowid int64, err error) {
+func createBlob(c sqliteConn, name string, length int64, clobber bool) (rowid int64, err error) {
 	if clobber {
 		var dataId setOnce[int64]
 		err = sqlitex.Exec(c, "select data_id from blob where name=?", func(stmt *sqlite.Stmt) error {
@@ -48,7 +48,7 @@ func createBlob(c conn, name string, length int64, clobber bool) (rowid int64, e
 	return
 }
 
-func rowidForBlob(c conn, name string) (rowid int64, length int64, ok bool, err error) {
+func rowidForBlob(c sqliteConn, name string) (rowid int64, length int64, ok bool, err error) {
 	err = sqlitex.Exec(
 		c,
 		// Holy shit. Use octet_length here for sqlite 3.43.0. Looks like this was loading the

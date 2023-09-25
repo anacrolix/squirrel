@@ -17,7 +17,7 @@ func (me ErrUnexpectedJournalMode) Error() string {
 	return fmt.Sprintf("unexpected journal mode: %q", me.JournalMode)
 }
 
-func setSynchronous(conn conn, syncInt int) (err error) {
+func setSynchronous(conn sqliteConn, syncInt int) (err error) {
 	err = sqlitex.ExecTransient(conn, fmt.Sprintf(`pragma synchronous=%v`, syncInt), nil)
 	if err != nil {
 		return err
@@ -43,11 +43,11 @@ func setSynchronous(conn conn, syncInt int) (err error) {
 	return nil
 }
 
-func setAndVerifyPragma(conn conn, name string, value any) (err error) {
+func setAndVerifyPragma(conn sqliteConn, name string, value any) (err error) {
 	return setAndMaybeVerifyPragma(conn, name, value, g.Some(value))
 }
 
-func setAndMaybeVerifyPragma(conn conn, name string, value any, verify g.Option[any]) (err error) {
+func setAndMaybeVerifyPragma(conn sqliteConn, name string, value any, verify g.Option[any]) (err error) {
 	valueStr := fmt.Sprint(value)
 	setPragmaQuery := fmt.Sprintf("pragma %s=%s", name, valueStr)
 	text, err := execTransientReturningText(conn, setPragmaQuery)
@@ -75,7 +75,7 @@ func setAndMaybeVerifyPragma(conn conn, name string, value any, verify g.Option[
 	return
 }
 
-func execTransientReturningText(conn conn, query string) (s g.Option[string], err error) {
+func execTransientReturningText(conn sqliteConn, query string) (s g.Option[string], err error) {
 	var once setOnce[string]
 	err = sqlitex.ExecTransient(conn, query, func(stmt *sqlite.Stmt) error {
 		once.Set(stmt.ColumnText(0))

@@ -1,6 +1,7 @@
 package squirrel
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -27,8 +28,24 @@ func TestingNewCache(c *qt.C, opts NewCacheOpts) *Cache {
 }
 
 func TestingTempCachePath(c testing.TB) string {
-	return filepath.Join(c.TempDir(), "squirrel.db")
+	if cleanupDatabases {
+		// Put the database in the test temp dir, so it gets removed automatically.
+		return filepath.Join(c.TempDir(), "squirrel.db")
+	}
+	// Create a temporary file in the OS temp dir, so we can inspect it after the tests.
+	f, err := os.CreateTemp("", "squirrel.db")
+	if err != nil {
+		c.Fatalf("creating temp cache path: %v", err)
+	}
+	path := f.Name()
+	c.Logf("cache path: %v", path)
+	f.Close()
+	return path
 }
+
+// Whether to remove databases after tests run, or leave them behind and log where they are for
+// inspection.
+const cleanupDatabases = true
 
 func TestingDefaultCacheOpts(tb testing.TB) (ret NewCacheOpts) {
 	ret.Path = TestingTempCachePath(tb)

@@ -1,7 +1,9 @@
 package squirrel_test
 
 import (
+	"errors"
 	"fmt"
+	squirrelTesting "github.com/anacrolix/squirrel/internal/testing"
 	"io"
 	"testing"
 
@@ -26,7 +28,7 @@ func benchCacheGets(cache *squirrel.Cache, b *testing.B) {
 			var buf [6]byte
 			n, err := pb.ReadAt(buf[:], 0)
 			pb.Close()
-			if err != io.EOF && err != nil {
+			if !squirrelTesting.EofOrNil(err) {
 				b.Fatalf("got error reading value from blob on iteration %v: %v", i, err)
 			}
 			if n != len(value) {
@@ -39,11 +41,8 @@ func benchCacheGets(cache *squirrel.Cache, b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			var buf [6]byte
 			n, err := cache.ReadFull(key, buf[:])
-			if err != nil {
-				b.Fatalf("got error reading value from blob on iteration %v: %v", i, err)
-			}
 			if n != len(value) {
-				err = fmt.Errorf("read unexpected length %v after %v iterations", n, i)
+				err = fmt.Errorf("read unexpected length %v after %v iterations: %v", n, i, err)
 				b.Fatal(err)
 			}
 		}
@@ -53,11 +52,8 @@ func benchCacheGets(cache *squirrel.Cache, b *testing.B) {
 			for i := 0; i < b.N; i++ {
 				var buf [6]byte
 				n, err := tx.ReadFull(key, buf[:])
-				if err != nil {
-					b.Fatalf("got error reading value from blob on iteration %v: %v", i, err)
-				}
 				if n != len(value) {
-					err = fmt.Errorf("read unexpected length %v after %v iterations", n, i)
+					err = fmt.Errorf("read unexpected length %v after %v iterations: %#v", n, i, err)
 					b.Fatal(err)
 				}
 			}
@@ -92,7 +88,7 @@ func benchmarkReadAtEndOfBlob(b *testing.B, blobSize int, readSize int, cacheOpt
 			}
 			defer pb.Close()
 			n, err := pb.ReadAt(buf, int64(len(value)-len(buf)))
-			if err != nil && err != io.EOF {
+			if err != nil && !errors.Is(err, io.EOF) {
 				return
 			}
 			if n != len(buf) {

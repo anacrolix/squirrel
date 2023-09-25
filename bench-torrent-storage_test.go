@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"testing"
 
 	g "github.com/anacrolix/generics"
@@ -126,7 +127,10 @@ func writeToOneBigPiece(cache *squirrel.Cache, key []byte, off uint32, b []byte,
 			return
 		}
 		defer blob.Close()
-		_, err = blob.WriteAt(b, int64(off))
+		n, err := blob.WriteAt(b, int64(off))
+		if n != len(b) && err == nil {
+			log.Println(n, len(b))
+		}
 		return
 	})
 }
@@ -144,11 +148,11 @@ func readAndHashSeparateChunks[C squirrel.Cacher](
 			break
 		}
 		chunkKey := binary.BigEndian.AppendUint32(key, off)
-		n, err := cache.ReadFull(string(chunkKey), buf)
-		if err != nil {
+		b, err := cache.ReadAll(string(chunkKey), buf)
+		if err != nil && !errors.Is(err, io.EOF) {
 			panic(err)
 		}
-		hash.Write(buf[:n])
+		hash.Write(b)
 		err = cache.SetTag(string(chunkKey), "verified", true)
 		if err != nil {
 			panic(err)
@@ -199,9 +203,9 @@ func BenchmarkTorrentStorage(b *testing.B) {
 			}},
 		},
 		[]nestedBench{
-			{"LockingModeExclusive", func(opts *squirrel.NewCacheOpts) {
-				opts.SetLockingMode = "exclusive"
-			}},
+			//{"LockingModeExclusive", func(opts *squirrel.NewCacheOpts) {
+			//	opts.SetLockingMode = "exclusive"
+			//}},
 			{"LockingModeNormal", func(opts *squirrel.NewCacheOpts) {
 				opts.SetLockingMode = "normal"
 			}},

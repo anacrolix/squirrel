@@ -1,6 +1,7 @@
 package squirrel
 
 import (
+	squirrelTesting "github.com/anacrolix/squirrel/internal/testing"
 	"io"
 	"testing"
 
@@ -48,13 +49,13 @@ func TestConcurrentCreateBlob(t *testing.T) {
 	c.Assert(err, qt.IsNil)
 	b, err := io.ReadAll(io.NewSectionReader(pb, 0, pb.Length()))
 	c.Check(pb.Close(), qt.IsNil)
-	c.Check(err, qt.IsNil)
+	c.Check(err, qt.Satisfies, squirrelTesting.EofOrNil)
 	c.Check(allValues, qt.Contains, string(b))
-	conn, err := newConn(opts.NewConnOpts)
+	conn, err := newSqliteConn(opts.NewConnOpts)
 	c.Assert(err, qt.IsNil)
 	defer conn.Close()
 	var count setOnce[int64]
-	c.Assert(sqlitex.Exec(conn, "select count(*) from blob_data", func(stmt *sqlite.Stmt) error {
+	c.Assert(sqlitex.Exec(conn, "select count(*) from blobs", func(stmt *sqlite.Stmt) error {
 		count.Set(stmt.ColumnInt64(0))
 		return nil
 	}), qt.IsNil)

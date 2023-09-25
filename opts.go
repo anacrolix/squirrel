@@ -1,7 +1,7 @@
 package squirrel
 
 import (
-	"github.com/anacrolix/generics"
+	g "github.com/anacrolix/generics"
 )
 
 type InitConnOpts struct {
@@ -12,13 +12,13 @@ type InitConnOpts struct {
 	SetLockingMode string
 	// Page count is limited to uint32, but this value can be negative too, or interpreted as 1024
 	// byte blocks of memory. In the C code it's an int (which would be int32 in Go?).
-	CacheSize generics.Option[int64]
+	CacheSize g.Option[int64]
 }
 
 // Fields are in order of how they should be used during initialization.
 type InitDbOpts struct {
-	SetAutoVacuum     generics.Option[string]
-	RequireAutoVacuum generics.Option[any]
+	SetAutoVacuum     g.Option[string]
+	RequireAutoVacuum g.Option[any]
 	PageSize          int
 	DontInitSchema    bool
 	NoTriggers        bool
@@ -32,4 +32,7 @@ type NewConnOpts struct {
 	// automatically deleted as soon as the database connection is closed."
 	Path   string
 	Memory bool
+	// sqlite3 has a default limit of 1GB. Due to integer types used internally, I think it's not
+	// possible to go over 2GiB-1.
+	MaxBlobSize g.Option[maxBlobSizeType]
 }
