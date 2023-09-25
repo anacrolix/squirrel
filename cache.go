@@ -2,6 +2,7 @@ package squirrel
 
 import (
 	"errors"
+	"github.com/ajwerner/btree"
 	"sync"
 	"time"
 
@@ -50,10 +51,31 @@ func newConn(opts NewCacheOpts) (ret conn, err error) {
 		conn.Close()
 		return
 	}
+	ret = new(connStruct)
 	ret.sqliteConn = conn
-	g.MakeMap(&ret.blobs)
+	ret.blobs = makeBlobCache()
 	ret.maxBlobSize = opts.MaxBlobSize.UnwrapOr(defaultMaxBlobSize)
 	return
+}
+
+func makeBlobCache() btree.Map[valueKey, *sqlite.Blob] {
+	return btree.MakeMap[valueKey, *sqlite.Blob](func(l, r valueKey) int {
+		if l.keyId != r.keyId {
+			if l.keyId < r.keyId {
+				return -1
+			} else {
+				return 1
+			}
+		}
+		if l.offset != r.offset {
+			if l.offset < r.offset {
+				return -1
+			} else {
+				return 1
+			}
+		}
+		return 0
+	})
 }
 
 func NewCache(opts NewCacheOpts) (_ *Cache, err error) {
@@ -287,6 +309,7 @@ func (c *Cache) runTx(f func(tx *Tx) error, level string) (err error) {
 			return
 		}
 		err = f(&Tx{c})
+		c.closeBlobs()
 		if err == nil {
 			err = sqlitex.Exec(c.sqliteConn, "commit", nil)
 		} else {

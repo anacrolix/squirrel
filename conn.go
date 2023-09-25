@@ -2,8 +2,9 @@ package squirrel
 
 import (
 	_ "embed"
+	"errors"
 	"fmt"
-	g "github.com/anacrolix/generics"
+	"github.com/ajwerner/btree"
 	"net/url"
 
 	"github.com/go-llsqlite/adapter"
@@ -14,7 +15,7 @@ type sqliteConn = *sqlite.Conn
 
 type connStruct struct {
 	sqliteConn  sqliteConn
-	blobs       map[rowid]*sqlite.Blob
+	blobs       btree.Map[valueKey, *sqlite.Blob]
 	maxBlobSize maxBlobSizeType
 }
 
@@ -22,7 +23,7 @@ func (c conn) Close() error {
 	return c.sqliteConn.Close()
 }
 
-type conn connStruct
+type conn = *connStruct
 
 func initConn(conn sqliteConn, opts InitConnOpts, pageSize int) (err error) {
 	err = setSynchronous(conn, opts.SetSynchronous)
@@ -273,15 +274,40 @@ func sqlQuery(query string) string {
 	return query
 }
 
-// TODO: Add optimization to skip to first blob that includes an offset
 func (conn conn) iterBlobs(
 	valueId rowid,
 	iter func(offset int64, blob *sqlite.Blob) (more bool, err error),
 	write bool,
 	startOffset int64,
 ) (err error) {
+	it := conn.blobs.Iterator()
+	// Seek to the blob after the one we want, because we need the blob that will contain our
+	// intended offset.
+	it.SeekGE(valueKey{
+		keyId:  valueId,
+		offset: startOffset + 1,
+	})
+	if it.Valid() {
+		it.Prev()
+	} else {
+		// There's a test that shows this is necessary. You can't Prev on an invalid iterator.
+		it.Last()
+	}
+	// Technically don't need more here yet. From here we reuse blobs, then get new ones by querying
+	// the database. What if we have some after the first few, but already started on the statement?
 	more := true
-	var blob g.Option[*sqlite.Blob]
+	for it.Valid() && it.Cur().keyId == valueId {
+		blobEnd := it.Cur().offset + it.Value().Size()
+		if blobEnd > startOffset {
+			more, err = iter(it.Cur().offset, it.Value())
+			if err != nil || !more {
+				return
+			}
+			// Skip to the first unknown offset if we have to query for it.
+			startOffset = blobEnd
+		}
+		it.Next()
+	}
 	err = conn.sqliteQuery(
 		sqlQuery(`
 			select offset, blob_id 
@@ -295,24 +321,27 @@ func (conn conn) iterBlobs(
 			}
 			offset := stmt.ColumnInt64(0)
 			blobId := stmt.ColumnInt64(1)
-			if !blob.Ok {
-				blob.Value, err = conn.openBlob(blobId, write)
-				blob.Ok = err == nil
-			} else {
-				err = blob.Value.Reopen(blobId)
+			//log.Println(offset, blobId)
+			blob, err := conn.openBlob(blobId, write)
+			if err == nil {
+				key := valueKey{
+					keyId:  valueId,
+					offset: offset,
+				}
+				_, _, replaced := conn.blobs.Upsert(key, blob)
+				if replaced {
+					panic(key)
+				}
 			}
 			if err != nil {
 				return
 			}
-			more, err = iter(offset, blob.Unwrap())
+			more, err = iter(offset, blob)
 			return
 		},
 		valueId,
 		startOffset,
 	)
-	if blob.Ok {
-		blob.Value.Close()
-	}
 	return
 }
 
@@ -396,6 +425,32 @@ func (conn conn) accessedKey(keyId rowid, ignoreBusy bool) (err error) {
 	)
 	if ignoreBusy && sqlite.IsResultCode(err, sqlite.ResultCodeBusy) {
 		err = nil
+	}
+	return
+}
+
+func (conn conn) closeBlobs() {
+	it := conn.blobs.Iterator()
+	it.First()
+	for it.Valid() {
+		it.Value().Close()
+		it.Next()
+	}
+	conn.blobs.Reset()
+}
+
+func (conn conn) forgetBlobsForKeyId(keyId rowid) (err error) {
+	it := conn.blobs.Iterator()
+	for {
+		it.SeekGE(valueKey{
+			keyId:  keyId,
+			offset: 0,
+		})
+		if !it.Valid() || it.Cur().keyId != keyId {
+			break
+		}
+		err = errors.Join(err, it.Value().Close())
+		conn.blobs.Delete(it.Cur())
 	}
 	return
 }

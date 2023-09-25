@@ -61,3 +61,20 @@ func TestConcurrentCreateBlob(t *testing.T) {
 	}), qt.IsNil)
 	c.Check(count.Value(), qt.Equals, int64(1))
 }
+
+// Show that seeking GE past the end means Prev won't work and we have to use Last.
+func TestSeekingBlobBtree(t *testing.T) {
+	blobs := makeBlobCache()
+	blobs.Upsert(valueKey{1, 0}, nil)
+	blobs.Upsert(valueKey{1, 1}, nil)
+	qtc := qt.New(t)
+	qtc.Assert(blobs.Len(), qt.Equals, 2)
+	it := blobs.Iterator()
+	it.SeekGE(valueKey{1, 1})
+	it.Prev()
+	qtc.Assert(it.Cur(), qt.Equals, valueKey{1, 0})
+	it.SeekGE(valueKey{1, 2})
+	qtc.Check(it.Valid(), qt.IsFalse)
+	it.Last()
+	qtc.Assert(it.Cur(), qt.Equals, valueKey{1, 1})
+}

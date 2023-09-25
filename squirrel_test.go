@@ -5,6 +5,7 @@ import (
 	squirrelTesting "github.com/anacrolix/squirrel/internal/testing"
 	"io"
 	"log"
+	"math/rand"
 	"testing"
 	"time"
 
@@ -204,4 +205,27 @@ func TestTxWhileOpenedPinnedBlob(t *testing.T) {
 	qtc.Assert(err, qt.IsNil)
 	pb, err = cache.OpenPinnedReadOnly(defaultKey)
 	qtc.Assert(err, qt.ErrorIs, squirrel.ErrNotFound)
+}
+
+func TestWriteVeryLargeBlob(t *testing.T) {
+	qtc := qt.New(t)
+	cacheOpts := squirrel.TestingDefaultCacheOpts(qtc)
+	cache := squirrel.TestingNewCache(qtc, cacheOpts)
+	source := rand.NewSource(1)
+	randRdr := rand.New(source)
+	const valueLen int64 = 1 << 30
+	blob, err := cache.Create(defaultKey, squirrel.CreateOpts{valueLen})
+	qtc.Assert(err, qt.IsNil)
+	h := newFastestHash()
+	n, _ := io.Copy(io.MultiWriter(io.NewOffsetWriter(blob, 0), h), randRdr)
+	qtc.Assert(n, qt.Equals, valueLen)
+	qtc.Assert(blob.Close(), qt.IsNil)
+	readHash := newFastestHash()
+	blob, err = cache.OpenPinnedReadOnly(defaultKey)
+	qtc.Assert(err, qt.IsNil)
+	defer blob.Close()
+	n, err = io.Copy(readHash, io.NewSectionReader(blob, 0, valueLen))
+	qtc.Check(err, qt.IsNil)
+	qtc.Assert(n, qt.Equals, valueLen)
+	qtc.Assert(h.Sum32(), qt.Equals, readHash.Sum32())
 }

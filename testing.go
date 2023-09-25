@@ -49,5 +49,6 @@ const cleanupDatabases = true
 
 func TestingDefaultCacheOpts(tb testing.TB) (ret NewCacheOpts) {
 	ret.Path = TestingTempCachePath(tb)
+	//ret.SetJournalMode = "wal"
 	return
 }
