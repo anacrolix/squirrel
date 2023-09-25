@@ -13,6 +13,8 @@ type InitConnOpts struct {
 	// Page count is limited to uint32, but this value can be negative too, or interpreted as 1024
 	// byte blocks of memory. In the C code it's an int (which would be int32 in Go?).
 	CacheSize g.Option[int64]
+	// Maximum length of a blob or text value.
+	LengthLimit g.Option[int]
 }
 
 // Fields are in order of how they should be used during initialization.

@@ -4,10 +4,11 @@ import (
 	_ "embed"
 	"errors"
 	"fmt"
-	"github.com/ajwerner/btree"
 	"net/url"
 
-	"github.com/go-llsqlite/adapter"
+	"github.com/ajwerner/btree"
+
+	sqlite "github.com/go-llsqlite/adapter"
 	"github.com/go-llsqlite/adapter/sqlitex"
 )
 
@@ -76,6 +77,9 @@ func initConn(conn sqliteConn, opts InitConnOpts, pageSize int) (err error) {
 	}
 	if opts.CacheSize.Ok {
 		err = setAndVerifyPragma(conn, "cache_size", opts.CacheSize.Value)
+	}
+	if opts.LengthLimit.Ok {
+		conn.Limit(sqlite.LimitLength, opts.LengthLimit.Value)
 	}
 	return
 }
@@ -273,6 +277,8 @@ func (conn conn) openBlob(blobId rowid, write bool) (*sqlite.Blob, error) {
 	return openSqliteBlob(conn.sqliteConn, blobId, write)
 }
 
+// This is a wrapper to trim and tidy the sql from the source if needed. It's also easier to format
+// a query wrapped in a function to look good.
 func sqlQuery(query string) string {
 	return query
 }
