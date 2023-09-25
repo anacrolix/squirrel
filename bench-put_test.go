@@ -1,6 +1,8 @@
 package squirrel_test
 
 import (
+	"io"
+	"math/rand"
 	"testing"
 
 	"github.com/anacrolix/squirrel"
@@ -80,4 +82,28 @@ func BenchmarkTransaction(b *testing.B) {
 				return nil
 			})
 		})
+}
+
+func BenchmarkWriteVeryLargeBlob(b *testing.B) {
+	const valueLen = 1e9 + 1
+	b.SetBytes(valueLen)
+	writeLargeValue := func(cache *squirrel.Cache) (err error) {
+		item, err := cache.Create(defaultKey, squirrel.CreateOpts{valueLen})
+		if err != nil {
+			return
+		}
+		defer item.Close()
+		src := rand.New(rand.NewSource(1))
+		n, err := io.CopyN(io.NewOffsetWriter(item, 0), src, valueLen)
+		if n != valueLen {
+			panic(n)
+		}
+		return
+	}
+	benchCache(
+		b,
+		squirrel.TestingDefaultCacheOpts(b),
+		writeLargeValue,
+		writeLargeValue,
+	)
 }
