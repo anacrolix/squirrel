@@ -192,24 +192,33 @@ func (c *Cache) Close() (err error) {
 // Returns a PinnedBlob. The item must already exist. You must call PinnedBlob.Close when done
 // with it.
 func (c *Cache) OpenPinnedReadOnly(name string) (ret CachePinnedBlob, err error) {
-	return c.getPinnedBlob(func(tx *Tx) (*PinnedBlob, error) {
-		return tx.OpenPinnedReadOnly(name)
-	})
+	return c.getPinnedBlob(
+		c.Tx,
+		func(tx *Tx) (*PinnedBlob, error) {
+			return tx.OpenPinnedReadOnly(name)
+		})
 }
 
 // Returns a PinnedBlob with its own implied Tx.
 func (c *Cache) Create(name string, opts CreateOpts) (ret CachePinnedBlob, err error) {
-	return c.getPinnedBlob(func(tx *Tx) (*PinnedBlob, error) {
-		return tx.Create(name, opts)
-	})
+	return c.getPinnedBlob(
+		c.TxImmediate,
+		func(tx *Tx) (*PinnedBlob, error) {
+			return tx.Create(name, opts)
+		})
 }
 
 // Returns a PinnedBlob with an automatic Tx. The Tx is closed when the returned value is Closed.
-func (c *Cache) getPinnedBlob(fromTx func(tx *Tx) (*PinnedBlob, error)) (ret CachePinnedBlob, err error) {
+func (c *Cache) getPinnedBlob(
+	getTx func(f func(tx *Tx) error) error,
+	fromTx func(tx *Tx) (*PinnedBlob, error),
+) (ret CachePinnedBlob, err error) {
 	ready := make(chan struct{})
+	ret.txFinished = make(chan struct{})
 	closed := false
 	go func() {
-		err = c.Tx(func(tx *Tx) (err error) {
+		defer close(ret.txFinished)
+		err = getTx(func(tx *Tx) (err error) {
 			pb, err := fromTx(tx)
 			if err != nil {
 				return
@@ -237,13 +246,20 @@ func (c *Cache) getPinnedBlob(fromTx func(tx *Tx) (*PinnedBlob, error)) (ret Cac
 }
 
 type CachePinnedBlob struct {
+	// An item that exists inside its own transaction.
 	*PinnedBlob
+	// Call this to end the transaction for the above item.
 	finishTx func()
+	// This is closed when the transaction has returned. If you don't wait you can rush into a new
+	// transaction with a Cache, not see conn returned, and create a new one that gets SQLITE_BUSY
+	// when it tries to upgrade to write.
+	txFinished chan struct{}
 }
 
 func (me CachePinnedBlob) Close() (err error) {
 	err = me.PinnedBlob.Close()
 	me.finishTx()
+	<-me.txFinished
 	return
 }
 
