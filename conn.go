@@ -349,6 +349,7 @@ func (conn conn) iterBlobs(
 					}
 				}
 				if err != nil {
+					err = fmt.Errorf("error opening blob id %v for offset %v: %w", blobId, offset, err)
 					return
 				}
 			}

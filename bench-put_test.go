@@ -1,6 +1,7 @@
 package squirrel_test
 
 import (
+	"fmt"
 	"io"
 	"math/rand"
 	"testing"
@@ -85,19 +86,22 @@ func BenchmarkTransaction(b *testing.B) {
 }
 
 func BenchmarkWriteVeryLargeBlob(b *testing.B) {
-	const valueLen = 1e9 + 1
+	const valueLen = 64 << 20
 	b.SetBytes(valueLen)
 	cacheOpts := squirrel.TestingDefaultCacheOpts(b)
 	cacheOpts.SetJournalMode = "wal"
+	cacheOpts.LengthLimit.Set(valueLen - 1)
+	cacheOpts.MaxBlobSize.Set(1 << 23)
 	writeLargeValue := func(cache *squirrel.Cache) (err error) {
 		item, err := cache.Create(defaultKey, squirrel.CreateOpts{valueLen})
 		if err != nil {
+			err = fmt.Errorf("creating cache item: %w", err)
 			return
 		}
 		defer item.Close()
 		src := rand.New(rand.NewSource(1))
 		n, err := io.CopyN(io.NewOffsetWriter(item, 0), src, valueLen)
-		if n != valueLen {
+		if err == nil && n != valueLen {
 			panic(n)
 		}
 		return
