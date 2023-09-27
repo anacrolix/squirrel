@@ -13,12 +13,16 @@ import (
 	"github.com/anacrolix/squirrel"
 )
 
-const defaultPieceSize = 2 << 20
+const (
+	logTorrentStorageBenchmarkDbPaths = false
+	benchmarkTorrentStoragePieceSize  = 2 << 20
+	benchmarkTorrentStorageNumKeys    = 8
+)
 
 func BenchmarkRandRead(b *testing.B) {
 	b.Skip("not interesting normally")
-	var piece [defaultPieceSize]byte
-	b.SetBytes(defaultPieceSize)
+	var piece [benchmarkTorrentStoragePieceSize]byte
+	b.SetBytes(benchmarkTorrentStoragePieceSize)
 	b.Run("Slow", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			readRandSlow(piece[:])
@@ -45,15 +49,6 @@ type readHashAndTagFunc = func(
 ) error
 
 type pieceWriteFunc = func(cache *squirrel.Cache, key []byte, off uint32, b []byte, pieceSize uint32) error
-
-const (
-	logTorrentStorageBenchmarkDbPaths = false
-)
-
-const (
-	benchmarkTorrentStoragePieceSize = 2 << 20
-	benchmarkTorrentStorageNumKeys   = 8
-)
 
 func benchmarkTorrentStorage(
 	b *testing.B,
@@ -121,6 +116,7 @@ func benchmarkTorrentStorage(
 		}
 		return nil
 	}
+	//b.Logf("max page count: %v", cacheOpts.MaxPageCount.Value)
 	benchCache(
 		b,
 		cacheOpts,
@@ -205,6 +201,20 @@ func BenchmarkTorrentStorage(b *testing.B) {
 		cacheOpts.RequireAutoVacuum = g.Some[any](1)
 		return cacheOpts
 	}
+	setMaxPageCount := func(opts *squirrel.NewCacheOpts) {
+		pageSize := int64(opts.PageSize)
+		if pageSize == 0 {
+			pageSize = 4096
+		}
+		maxValueLen := opts.Capacity
+		if opts.Capacity < 0 {
+			maxValueLen = benchmarkTorrentStorageNumKeys * benchmarkTorrentStoragePieceSize
+		}
+		// Add enough space for a new piece to be written before old pieces are trimmed. This
+		// probably doesn't take into account extra branch pages.
+		maxBytes := maxValueLen * 2
+		opts.MaxPageCount.Set(uint32((maxBytes + pageSize - 1) / pageSize))
+	}
 	startNestedBenchmark(
 		b,
 		newCacheOpts,
@@ -233,9 +243,11 @@ func BenchmarkTorrentStorage(b *testing.B) {
 		[]nestedBench{
 			{"HalfCapacity", func(opts *squirrel.NewCacheOpts) {
 				opts.Capacity = benchmarkTorrentStorageNumKeys * benchmarkTorrentStoragePieceSize / 2
+				setMaxPageCount(opts)
 			}},
 			{"UnlimitedCapacity", func(opts *squirrel.NewCacheOpts) {
 				opts.Capacity = -1
+				setMaxPageCount(opts)
 			}},
 		},
 	)

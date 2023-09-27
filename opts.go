@@ -16,6 +16,7 @@ type InitConnOpts struct {
 	// Maximum length of a blob or text value.
 	LengthLimit      g.Option[int]
 	JournalSizeLimit g.Option[int64]
+	MaxPageCount     g.Option[uint32]
 }
 
 // Fields are in order of how they should be used during initialization.

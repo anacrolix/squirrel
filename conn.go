@@ -31,23 +31,6 @@ func (c conn) Close() error {
 type conn = *connStruct
 
 func initSqliteConn(conn sqliteConn, opts InitConnOpts, pageSize int) (err error) {
-	err = setSynchronous(conn, opts.SetSynchronous)
-	if err != nil {
-		return
-	}
-	// Recursive triggers are required because we need to trim the blob_meta size after trimming to
-	// capacity. Hopefully we don't hit the recursion limit, and if we do, there's an error thrown.
-	err = sqlitex.ExecTransient(conn, "pragma recursive_triggers=on", nil)
-	if err != nil {
-		return err
-	}
-	// For some reason it's faster to set page size after synchronous. We need to set it before
-	// setting journal mode in case it's WAL.
-	err = setPageSize(conn, pageSize)
-	if err != nil {
-		err = fmt.Errorf("setting page size: %w", err)
-		return
-	}
 	if opts.SetJournalMode != "" {
 		journalMode, err := execTransientReturningText(
 			conn,
@@ -534,15 +517,15 @@ func (conn conn) trimToCapacity() (err error) {
 }
 
 func (conn conn) bytesUsed() (ret int64, err error) {
-	pages, err := conn.execPragmaReturningInt("page_count")
+	pages, err := conn.execPragmaReturningInt64("page_count")
 	if err != nil {
 		return
 	}
-	pageSize, err := conn.execPragmaReturningInt("page_size")
+	pageSize, err := conn.execPragmaReturningInt64("page_size")
 	if err != nil {
 		return
 	}
-	freelistCount, err := conn.execPragmaReturningInt("freelist_count")
+	freelistCount, err := conn.execPragmaReturningInt64("freelist_count")
 	if err != nil {
 		return
 	}
@@ -550,7 +533,7 @@ func (conn conn) bytesUsed() (ret int64, err error) {
 	return
 }
 
-func (conn conn) execPragmaReturningInt(pragma string) (ret int64, err error) {
+func (conn conn) execPragmaReturningInt64(pragma string) (ret int64, err error) {
 	err = conn.sqliteQueryMustOneRow(fmt.Sprintf("pragma %v", pragma), func(stmt *sqlite.Stmt) error {
 		ret = stmt.ColumnInt64(0)
 		return nil

@@ -2,6 +2,7 @@ package squirrel
 
 import (
 	"errors"
+	"fmt"
 	"github.com/anacrolix/log"
 	"github.com/anacrolix/sync"
 	"time"
@@ -57,6 +58,17 @@ func initConn(conn conn, opts NewCacheOpts) (err error) {
 	if err != nil {
 		return
 	}
+	err = setSynchronous(conn.sqliteConn, opts.SetSynchronous)
+	if err != nil {
+		return
+	}
+	// For some reason it's faster to set page size after synchronous. We need to set it before
+	// setting journal mode in case it's WAL.
+	err = setPageSize(conn.sqliteConn, opts.PageSize)
+	if err != nil {
+		err = fmt.Errorf("setting page size: %w", err)
+		return
+	}
 	// pragma auto_vacuum=X needs to occur before pragma journal_mode=wal
 	err = initDatabase(conn.sqliteConn, opts.InitDbOpts)
 	if err != nil {
@@ -67,6 +79,15 @@ func initConn(conn conn, opts NewCacheOpts) (err error) {
 		return
 	}
 	err = conn.trimToCapacity()
+	if err != nil {
+		return
+	}
+	if opts.MaxPageCount.Ok {
+		err = setAndVerifyPragma(conn.sqliteConn, "max_page_count", opts.MaxPageCount.Value)
+		if err != nil {
+			return
+		}
+	}
 	return
 }
 
