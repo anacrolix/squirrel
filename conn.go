@@ -85,6 +85,13 @@ func initSqliteConn(conn sqliteConn, opts InitConnOpts, pageSize int) (err error
 	if opts.LengthLimit.Ok {
 		conn.Limit(sqlite.LimitLength, opts.LengthLimit.Value)
 	}
+	// Setting this to zero seems to have a decent performance impact when trimming is enabled.
+	if opts.JournalSizeLimit.Ok {
+		err = setAndVerifyPragma(conn, "journal_size_limit", opts.JournalSizeLimit.Value)
+		if err != nil {
+			return
+		}
+	}
 	return
 }
 

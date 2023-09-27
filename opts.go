@@ -10,11 +10,12 @@ type InitConnOpts struct {
 	MmapSizeOk     bool  // If false, a package-specific default will be used.
 	MmapSize       int64 // If MmapSizeOk is set, use sqlite default if < 0, otherwise this value.
 	SetLockingMode string
-	// Page count is limited to uint32, but this value can be negative too, or interpreted as 1024
-	// byte blocks of memory. In the C code it's an int (which would be int32 in Go?).
+	// Applies sqlite3 pragma cache_size. If negative it's the number of kibibytes. If positive,
+	// it's the number of pages. int64 might be too large for the true range of values permissible.
 	CacheSize g.Option[int64]
 	// Maximum length of a blob or text value.
-	LengthLimit g.Option[int]
+	LengthLimit      g.Option[int]
+	JournalSizeLimit g.Option[int64]
 }
 
 // Fields are in order of how they should be used during initialization.
@@ -24,7 +25,7 @@ type InitDbOpts struct {
 	PageSize          int
 	DontInitSchema    bool
 	NoTriggers        bool
-	// If non-zero, overrides the existing setting.
+	// If non-zero, overrides the existing setting. Less than zero is unlimited.
 	Capacity int64
 }
 

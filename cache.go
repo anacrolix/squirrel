@@ -66,16 +66,6 @@ func initConn(conn conn, opts NewCacheOpts) (err error) {
 	if err != nil {
 		return
 	}
-	capacity, err := conn.getCapacity()
-	if err != nil {
-		return
-	}
-	if capacity.Ok {
-		err = setAndVerifyPragma(conn.sqliteConn, "journal_size_limit", 0)
-		if err != nil {
-			return
-		}
-	}
 	err = conn.trimToCapacity()
 	return
 }
