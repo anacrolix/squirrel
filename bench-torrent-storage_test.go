@@ -50,6 +50,11 @@ const (
 	logTorrentStorageBenchmarkDbPaths = false
 )
 
+const (
+	benchmarkTorrentStoragePieceSize = 2 << 20
+	benchmarkTorrentStorageNumKeys   = 8
+)
+
 func benchmarkTorrentStorage(
 	b *testing.B,
 	cacheOpts squirrel.NewCacheOpts,
@@ -60,59 +65,74 @@ func benchmarkTorrentStorage(
 		b.Logf("db path: %q", cacheOpts.Path)
 	}
 	const chunkSize = 1 << 14
-	const pieceSize = 2 << 20
+	const pieceSize = benchmarkTorrentStoragePieceSize
+	const numKeys = benchmarkTorrentStorageNumKeys
 	//const chunkSize = 20
 	//const pieceSize = 2560
-	var key [20]byte
-	readRandSlow(key[:])
+	var keys [numKeys][20]byte
+	for i := range keys {
+		readRandSlow(keys[i][:])
+	}
+	doKey := func(key [20]byte, cache *squirrel.Cache) error {
+		var piece [pieceSize]byte
+		readRandSparse(piece[:])
+		h0 := newFastestHash()
+		h0.Write(piece[:])
+		makeOffIter := func() func() (uint32, bool) {
+			nextOff := uint32(0)
+			return func() (off uint32, ok bool) {
+				if nextOff >= pieceSize {
+					return 0, false
+				}
+				off = nextOff
+				ok = true
+				nextOff += chunkSize
+				return
+			}
+		}
+		offIter := makeOffIter()
+		for {
+			off, ok := offIter()
+			if !ok {
+				break
+			}
+			err := pieceWrite(cache, key[:], off, piece[off:off+chunkSize], pieceSize)
+			if err != nil {
+				panic(err)
+			}
+		}
+		h1 := newFastestHash()
+		err := readAndHash(cache, key[:], makeOffIter(), pieceSize, piece[:], h1)
+		if err != nil {
+			err = fmt.Errorf("while reading and hashing: %w", err)
+			return err
+		}
+		if h0.Sum32() != h1.Sum32() {
+			b.Fatal("hashes don't match")
+		}
+		return nil
+	}
+	doKeys := func(cache *squirrel.Cache) error {
+		for _, key := range keys {
+			err := doKey(key, cache)
+			if err != nil {
+				return err
+			}
+		}
+		return nil
+	}
 	benchCache(
 		b,
 		cacheOpts,
 		func(cache *squirrel.Cache) error {
-			return nil
+			return doKeys(cache)
 		},
 		func(cache *squirrel.Cache) error {
-			var piece [pieceSize]byte
-			readRandSparse(piece[:])
-			h0 := newFastestHash()
-			h0.Write(piece[:])
-			makeOffIter := func() func() (uint32, bool) {
-				nextOff := uint32(0)
-				return func() (off uint32, ok bool) {
-					if nextOff >= pieceSize {
-						return 0, false
-					}
-					off = nextOff
-					ok = true
-					nextOff += chunkSize
-					return
-				}
-			}
-			offIter := makeOffIter()
-			for {
-				off, ok := offIter()
-				if !ok {
-					break
-				}
-				err := pieceWrite(cache, key[:], off, piece[off:off+chunkSize], pieceSize)
-				if err != nil {
-					panic(err)
-				}
-			}
-			h1 := newFastestHash()
-			err := readAndHash(cache, key[:], makeOffIter(), pieceSize, piece[:], h1)
-			if err != nil {
-				err = fmt.Errorf("while reading and hashing: %w", err)
-				return err
-			}
-			if h0.Sum32() != h1.Sum32() {
-				b.Fatal("hashes don't match")
-			}
-			return nil
+			return doKeys(cache)
 		},
 	)
-	b.SetBytes(pieceSize)
-	b.ReportMetric(float64((pieceSize+chunkSize-1)/chunkSize*b.N)/b.Elapsed().Seconds(), "chunks/s")
+	b.SetBytes(pieceSize * numKeys)
+	b.ReportMetric(float64((pieceSize+chunkSize-1)/chunkSize*numKeys*b.N)/b.Elapsed().Seconds(), "chunks/s")
 }
 
 func writeChunksSeparately(cache *squirrel.Cache, key []byte, off uint32, b []byte, pieceSize uint32) error {
@@ -181,8 +201,8 @@ func readHashAndTagOneBigPiece(
 func BenchmarkTorrentStorage(b *testing.B) {
 	newCacheOpts := func(c testing.TB) squirrel.NewCacheOpts {
 		cacheOpts := squirrel.TestingDefaultCacheOpts(c)
-		cacheOpts.SetAutoVacuum = g.Some("incremental")
-		cacheOpts.RequireAutoVacuum = g.Some[any](2)
+		cacheOpts.SetAutoVacuum = g.Some("full")
+		cacheOpts.RequireAutoVacuum = g.Some[any](1)
 		return cacheOpts
 	}
 	startNestedBenchmark(
@@ -195,12 +215,12 @@ func BenchmarkTorrentStorage(b *testing.B) {
 			{"Wal", func(opts *squirrel.NewCacheOpts) {
 				opts.SetJournalMode = "wal"
 			}},
-			{"Delete", func(opts *squirrel.NewCacheOpts) {
-				opts.SetJournalMode = "delete"
-			}},
-			{"JournalModeOff", func(opts *squirrel.NewCacheOpts) {
-				opts.SetJournalMode = "off"
-			}},
+			//{"Delete", func(opts *squirrel.NewCacheOpts) {
+			//	opts.SetJournalMode = "delete"
+			//}},
+			//{"JournalModeOff", func(opts *squirrel.NewCacheOpts) {
+			//	opts.SetJournalMode = "off"
+			//}},
 		},
 		[]nestedBench{
 			//{"LockingModeExclusive", func(opts *squirrel.NewCacheOpts) {
@@ -208,6 +228,14 @@ func BenchmarkTorrentStorage(b *testing.B) {
 			//}},
 			{"LockingModeNormal", func(opts *squirrel.NewCacheOpts) {
 				opts.SetLockingMode = "normal"
+			}},
+		},
+		[]nestedBench{
+			{"HalfCapacity", func(opts *squirrel.NewCacheOpts) {
+				opts.Capacity = benchmarkTorrentStorageNumKeys * benchmarkTorrentStoragePieceSize / 2
+			}},
+			{"UnlimitedCapacity", func(opts *squirrel.NewCacheOpts) {
+				opts.Capacity = -1
 			}},
 		},
 	)
