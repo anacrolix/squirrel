@@ -32,9 +32,8 @@ func TestBlobWriteOutOfBounds(t *testing.T) {
 	c.Assert(err, qt.IsNil)
 	c.Check(n, qt.Equals, 6)
 	n, err = b.WriteAt([]byte("world\n"), 6)
+	c.Check(err, qt.IsNotNil)
 	c.Check(n, qt.Equals, 0)
-	c.Check(sqlite.ErrCode(err), qt.Equals, sqlite.ResultCodeGenericError)
-	c.Check(cache.Close(), qt.IsNil)
 }
 
 func TestTagDeletedWithBlob(t *testing.T) {

@@ -2,6 +2,7 @@ package squirrel
 
 import (
 	"errors"
+	"github.com/anacrolix/log"
 	"github.com/anacrolix/sync"
 	"time"
 
@@ -19,6 +20,7 @@ type NewCacheOpts struct {
 	// If not-nil, this will be closed if the sqlite busy handler is invoked while initializing the
 	// Cache.
 	ConnBlockedOnBusy *chan struct{}
+	Logger            log.Logger
 }
 
 func newConn(opts NewCacheOpts) (ret conn, err error) {
@@ -26,36 +28,55 @@ func newConn(opts NewCacheOpts) (ret conn, err error) {
 	if err != nil {
 		return
 	}
+	ret = new(connStruct)
+	ret.sqliteConn = conn
+	ret.blobs = makeBlobCache()
+	ret.maxBlobSize = opts.MaxBlobSize.UnwrapOr(defaultMaxBlobSize)
+	ret.logger = opts.Logger
+	err = initConn(ret, opts)
+	if err != nil {
+		err = errors.Join(err, ret.Close())
+	}
+	return
+}
+
+// Inits sqlite for a conn.
+func initConn(conn conn, opts NewCacheOpts) (err error) {
 	if opts.ConnBlockedOnBusy != nil {
 		returned := make(chan struct{})
 		defer close(returned)
 		go func() {
 			select {
-			case <-conn.BlockedOnBusy.On():
+			case <-conn.sqliteConn.BlockedOnBusy.On():
 				close(*opts.ConnBlockedOnBusy)
 			case <-returned:
 			}
 		}()
 	}
-	err = sqlitex.ExecTransient(conn, "pragma foreign_keys=on", nil)
+	err = sqlitex.ExecTransient(conn.sqliteConn, "pragma foreign_keys=on", nil)
 	if err != nil {
 		return
 	}
 	// pragma auto_vacuum=X needs to occur before pragma journal_mode=wal
-	err = initDatabase(conn, opts.InitDbOpts)
+	err = initDatabase(conn.sqliteConn, opts.InitDbOpts)
 	if err != nil {
-		conn.Close()
 		return
 	}
-	err = initConn(conn, opts.InitConnOpts, opts.PageSize)
+	err = initSqliteConn(conn.sqliteConn, opts.InitConnOpts, opts.PageSize)
 	if err != nil {
-		conn.Close()
 		return
 	}
-	ret = new(connStruct)
-	ret.sqliteConn = conn
-	ret.blobs = makeBlobCache()
-	ret.maxBlobSize = opts.MaxBlobSize.UnwrapOr(defaultMaxBlobSize)
+	capacity, err := conn.getCapacity()
+	if err != nil {
+		return
+	}
+	if capacity.Ok {
+		err = setAndVerifyPragma(conn.sqliteConn, "journal_size_limit", 0)
+		if err != nil {
+			return
+		}
+	}
+	err = conn.trimToCapacity()
 	return
 }
 
@@ -82,6 +103,9 @@ func makeBlobCache() btree.Map[valueKey, *sqlite.Blob] {
 func NewCache(opts NewCacheOpts) (_ *Cache, err error) {
 	cl := &Cache{
 		opts: opts,
+	}
+	if cl.opts.Logger.IsZero() {
+		cl.opts.Logger = log.Default
 	}
 	cl.closeCond.L = &cl.l
 	conn, err := cl.newConn()
@@ -334,13 +358,17 @@ func (c *Cache) runTx(f func(tx *Tx) error, level string) (err error) {
 		}
 		err = f(&Tx{c})
 		c.closeBlobs()
+		// TODO: Only trim when added to the database, or know that we upgraded to a write transaction already?
+		if err == nil {
+			err = c.trimToCapacity()
+		}
 		if err == nil {
 			err = sqlitex.Exec(c.sqliteConn, "commit", nil)
-		} else {
-			rollbackErr := sqlitex.Exec(c.sqliteConn, "rollback", nil)
-			if rollbackErr != nil {
-				err = errors.Join(err, rollbackErr)
-			}
+			return
+		}
+		rollbackErr := sqlitex.Exec(c.sqliteConn, "rollback", nil)
+		if rollbackErr != nil {
+			err = errors.Join(err, rollbackErr)
 		}
 		return
 	})

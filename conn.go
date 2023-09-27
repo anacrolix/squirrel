@@ -4,7 +4,10 @@ import (
 	_ "embed"
 	"errors"
 	"fmt"
+	g "github.com/anacrolix/generics"
+	"github.com/anacrolix/log"
 	"net/url"
+	"time"
 
 	"github.com/ajwerner/btree"
 
@@ -18,6 +21,7 @@ type connStruct struct {
 	sqliteConn  sqliteConn
 	blobs       btree.Map[valueKey, *sqlite.Blob]
 	maxBlobSize maxBlobSizeType
+	logger      log.Logger
 }
 
 func (c conn) Close() error {
@@ -26,7 +30,7 @@ func (c conn) Close() error {
 
 type conn = *connStruct
 
-func initConn(conn sqliteConn, opts InitConnOpts, pageSize int) (err error) {
+func initSqliteConn(conn sqliteConn, opts InitConnOpts, pageSize int) (err error) {
 	err = setSynchronous(conn, opts.SetSynchronous)
 	if err != nil {
 		return
@@ -440,7 +444,7 @@ func (conn conn) accessedKey(keyId rowid, ignoreBusy bool) (err error) {
 		),
 		keyId,
 	)
-	if ignoreBusy && sqlite.IsResultCode(err, sqlite.ResultCodeBusy) {
+	if ignoreBusy && sqlite.IsPrimaryResultCodeErr(err, sqlite.ResultCodeBusy) {
 		err = nil
 	}
 	return
@@ -469,5 +473,91 @@ func (conn conn) forgetBlobsForKeyId(keyId rowid) (err error) {
 		err = errors.Join(err, it.Value().Close())
 		conn.blobs.Delete(it.Cur())
 	}
+	return
+}
+
+func (conn conn) trimToCapacity() (err error) {
+	capacity, err := conn.getCapacity()
+	if err != nil {
+		return
+	}
+	if !capacity.Ok {
+		return
+	}
+	for {
+		var bytesUsed int64
+		bytesUsed, err = conn.bytesUsed()
+		if err != nil {
+			return
+		}
+		if bytesUsed <= capacity.Value {
+			return
+		}
+		var (
+			key         string
+			lastUsed    time.Time
+			accessCount int64
+			createTime  time.Time
+		)
+		ok, err := conn.sqliteQueryRow(
+			sqlQuery(`
+				delete from keys
+				where key_id=(select key_id from keys order by last_used, access_count, create_time limit 1)
+				returning key, last_used, access_count, create_time
+			`),
+			func(stmt *sqlite.Stmt) error {
+				key = stmt.ColumnText(0)
+				lastUsed = timeFromStmtColumn(stmt, 1)
+				accessCount = stmt.ColumnInt64(2)
+				createTime = timeFromStmtColumn(stmt, 3)
+				return nil
+			},
+		)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return errors.New("couldn't find keys to delete")
+		}
+		conn.logger.Printf(
+			"trimmed key %q (last used %v ago, access count %v, created %v ago)",
+			key, time.Since(lastUsed).Truncate(time.Second), accessCount, time.Since(createTime).Truncate(time.Second),
+		)
+	}
+}
+
+func (conn conn) bytesUsed() (ret int64, err error) {
+	pages, err := conn.execPragmaReturningInt("page_count")
+	if err != nil {
+		return
+	}
+	pageSize, err := conn.execPragmaReturningInt("page_size")
+	if err != nil {
+		return
+	}
+	freelistCount, err := conn.execPragmaReturningInt("freelist_count")
+	if err != nil {
+		return
+	}
+	ret = (pages - freelistCount) * pageSize
+	return
+}
+
+func (conn conn) execPragmaReturningInt(pragma string) (ret int64, err error) {
+	err = conn.sqliteQueryMustOneRow(fmt.Sprintf("pragma %v", pragma), func(stmt *sqlite.Stmt) error {
+		ret = stmt.ColumnInt64(0)
+		return nil
+	})
+	return
+}
+
+func (conn conn) getCapacity() (capacity g.Option[int64], err error) {
+	err = conn.sqliteQueryMaxOneRow(
+		"select value from setting where name='capacity'",
+		func(stmt *sqlite.Stmt) error {
+			capacity.Set(stmt.ColumnInt64(0))
+			return nil
+		},
+	)
 	return
 }

@@ -27,12 +27,7 @@ create table if not exists cache_meta (
     value
 ) without rowid;
 
-create index if not exists blob_last_used on keys(last_used, access_count, key_id);
-
--- While sqlite *seems* to be faster to get sum(length(data)) instead of
--- sum(length(data)), it may still require a large table scan at start-up or with a
--- cold-cache. With this we can be assured that it doesn't.
-insert or ignore into cache_meta values ('size', 0);
+create index if not exists blob_last_used on keys(last_used, access_count, create_time, key_id);
 
 create table if not exists setting (
     name primary key on conflict replace,

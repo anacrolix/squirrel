@@ -107,10 +107,6 @@ func (pb *PinnedBlob) WriteAt(b []byte, off int64) (n int, err error) {
 	return pb.doIoAt(b, off, (*sqlite.Blob).WriteAt, true)
 }
 
-func isReopenBlobError(err error) bool {
-	return errors.Is(err, sqlite.ErrBlobClosed) || sqlite.IsResultCode(err, sqlite.ResultCodeAbort)
-}
-
 func (pb *PinnedBlob) Close() error {
 	pb.tx = nil
 	return nil

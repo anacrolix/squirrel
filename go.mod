@@ -10,7 +10,7 @@ require (
 	github.com/anacrolix/log v0.14.3-0.20230823030427-4b296d71a6b4
 	github.com/anacrolix/sync v0.4.1-0.20230926072150-b8cd7cfb92d0
 	github.com/frankban/quicktest v1.14.6
-	github.com/go-llsqlite/adapter v0.0.0-20230926072226-8937fdff4133
+	github.com/go-llsqlite/adapter v0.0.0-20230927005056-7f5ce7f0c916
 	golang.org/x/sync v0.3.0
 )
 
