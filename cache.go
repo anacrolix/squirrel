@@ -377,9 +377,12 @@ func (c *Cache) runTx(f func(tx *Tx) error, level string) (err error) {
 			err = sqlitex.Exec(c.sqliteConn, "commit", nil)
 			return
 		}
-		rollbackErr := sqlitex.Exec(c.sqliteConn, "rollback", nil)
-		if rollbackErr != nil {
-			err = errors.Join(err, rollbackErr)
+		// Autocommit is re-enabled if a transaction is automatically rolled back such as by SQLITE_FULL.
+		if !c.sqliteConn.GetAutocommit() {
+			rollbackErr := sqlitex.Exec(c.sqliteConn, "rollback", nil)
+			if rollbackErr != nil {
+				err = errors.Join(err, rollbackErr)
+			}
 		}
 		return
 	})

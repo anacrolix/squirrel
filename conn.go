@@ -403,7 +403,7 @@ func (conn conn) createKey(key string, create CreateOpts) (keyId rowid, err erro
 			blobSize,
 		)
 		if err != nil {
-			panic(err)
+			return
 		}
 		blobId := conn.sqliteConn.LastInsertRowID()
 		err = conn.sqliteExec(
