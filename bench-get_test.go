@@ -165,9 +165,16 @@ func runNested(
 		})
 		return
 	}
-	for _, n := range nested[0] {
-		b.Run(n.name, func(b *testing.B) {
-			runNested(b, append(withOpts, n.withOpts), newCacheOpts, nested[1:], finally)
-		})
+	runRest := func(b *testing.B, nb nestedBench) {
+		runNested(b, append(withOpts, nb.withOpts), newCacheOpts, nested[1:], finally)
+	}
+	if len(nested[0]) == 1 {
+		runRest(b, nested[0][0])
+	} else {
+		for _, n := range nested[0] {
+			b.Run(n.name, func(b *testing.B) {
+				runRest(b, n)
+			})
+		}
 	}
 }
