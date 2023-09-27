@@ -466,6 +466,8 @@ func (conn conn) forgetBlobsForKeyId(keyId rowid) (err error) {
 	return
 }
 
+const logTrimmedKeys = true
+
 func (conn conn) trimToCapacity() (err error) {
 	capacity, err := conn.getCapacity()
 	if err != nil {
@@ -488,18 +490,22 @@ func (conn conn) trimToCapacity() (err error) {
 			lastUsed    time.Time
 			accessCount int64
 			createTime  time.Time
+			length      int64
 		)
 		ok, err := conn.sqliteQueryRow(
 			sqlQuery(`
 				delete from keys
 				where key_id=(select key_id from keys order by last_used, access_count, create_time limit 1)
-				returning key, last_used, access_count, create_time
+				returning key, last_used, access_count, create_time, length
 			`),
 			func(stmt *sqlite.Stmt) error {
-				key = stmt.ColumnText(0)
-				lastUsed = timeFromStmtColumn(stmt, 1)
-				accessCount = stmt.ColumnInt64(2)
-				createTime = timeFromStmtColumn(stmt, 3)
+				if logTrimmedKeys {
+					key = stmt.ColumnText(0)
+					lastUsed = timeFromStmtColumn(stmt, 1)
+					accessCount = stmt.ColumnInt64(2)
+					createTime = timeFromStmtColumn(stmt, 3)
+					length = stmt.ColumnInt64(4)
+				}
 				return nil
 			},
 		)
@@ -509,10 +515,17 @@ func (conn conn) trimToCapacity() (err error) {
 		if !ok {
 			return errors.New("couldn't find keys to delete")
 		}
-		conn.logger.Printf(
-			"trimmed key %q (last used %v ago, access count %v, created %v ago)",
-			key, time.Since(lastUsed).Truncate(time.Second), accessCount, time.Since(createTime).Truncate(time.Second),
-		)
+		if logTrimmedKeys {
+			conn.logger.Levelf(
+				log.Debug,
+				"trimmed key %q (size %v, last used %v ago, access count %v, created %v ago)",
+				key,
+				length,
+				time.Since(lastUsed).Truncate(time.Second),
+				accessCount,
+				time.Since(createTime).Truncate(time.Second),
+			)
+		}
 	}
 }
 
