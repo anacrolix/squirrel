@@ -2,12 +2,16 @@ package squirrel
 
 import (
 	"errors"
+	g "github.com/anacrolix/generics"
 	sqlite "github.com/go-llsqlite/adapter"
 	"io"
+	"time"
 )
 
 type Tx struct {
-	conn conn
+	conn         conn
+	accessedKeys map[rowid]struct{}
+	write        bool
 }
 
 type CreateOpts struct {
@@ -160,4 +164,11 @@ func (tx *Tx) OpenPinned(name string) (ret *PinnedBlob, err error) {
 // with it.
 func (tx *Tx) OpenPinnedReadOnly(name string) (ret *PinnedBlob, err error) {
 	return tx.openPinned(name, false)
+}
+
+func (tx *Tx) lastUsed(keyId rowid) (t time.Time, err error) {
+	if g.MapContains(tx.accessedKeys, keyId) {
+		return time.Now(), nil
+	}
+	return tx.conn.lastUsed(keyId)
 }

@@ -78,7 +78,7 @@ func initConn(conn conn, opts NewCacheOpts) (err error) {
 	if err != nil {
 		return
 	}
-	err = conn.trimToCapacity()
+	err = conn.trimToCapacity(nil)
 	if err != nil {
 		return
 	}
@@ -367,11 +367,26 @@ func (c *Cache) runTx(f func(tx *Tx) error, level string) (err error) {
 		if err != nil {
 			return
 		}
-		err = f(&Tx{c})
+		tx := Tx{
+			conn:  c,
+			write: level != "",
+		}
+		err = f(&tx)
 		c.closeBlobs()
 		// TODO: Only trim when added to the database, or know that we upgraded to a write transaction already?
 		if err == nil {
-			err = c.trimToCapacity()
+			err = c.trimToCapacity(func(key rowid) {
+				delete(tx.accessedKeys, key)
+			})
+		}
+		if err == nil {
+			for keyId := range tx.accessedKeys {
+				var ignored bool
+				ignored, err = c.accessedKey(keyId, !tx.write)
+				if err != nil || ignored {
+					break
+				}
+			}
 		}
 		if err == nil {
 			err = sqlitex.Exec(c.sqliteConn, "commit", nil)

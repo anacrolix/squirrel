@@ -1,7 +1,7 @@
 package squirrel
 
 import (
-	"errors"
+	g "github.com/anacrolix/generics"
 	"io"
 	"time"
 
@@ -98,7 +98,7 @@ func (pb *PinnedBlob) doIoAt(
 		valueOff,
 	)
 	if n != 0 {
-		err = errors.Join(err, conn.accessedKey(pb.valueId, !write))
+		g.MakeMapIfNilAndSet(&pb.tx.accessedKeys, pb.valueId, struct{}{})
 	}
 	return
 }
@@ -117,5 +117,5 @@ func (pb *PinnedBlob) LastUsed() (lastUsed time.Time, err error) {
 	if err != nil {
 		return
 	}
-	return pb.tx.conn.lastUsed(pb.valueId)
+	return pb.tx.lastUsed(pb.valueId)
 }

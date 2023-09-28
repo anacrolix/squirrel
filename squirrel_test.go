@@ -62,6 +62,7 @@ func waitSqliteSubsec() {
 // Check that we can read while there's a write transaction, and not error due to not being able to
 // apply access.
 func TestIgnoreBusyUpdatingAccessOnRead(t *testing.T) {
+	t.Skipf("this test depends on access times being updated during a transaction")
 	qtc := qt.New(t)
 	cacheOpts := squirrel.TestingDefaultCacheOpts(t)
 

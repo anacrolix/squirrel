@@ -423,7 +423,7 @@ func (conn conn) sqliteExec(query string, args ...any) error {
 	return conn.sqliteQuery(query, nil, args...)
 }
 
-func (conn conn) accessedKey(keyId rowid, ignoreBusy bool) (err error) {
+func (conn conn) accessedKey(keyId rowid, ignoreBusy bool) (ignored bool, err error) {
 	err = conn.sqliteExec(
 		sqlQuery(`
 			update keys
@@ -435,6 +435,7 @@ func (conn conn) accessedKey(keyId rowid, ignoreBusy bool) (err error) {
 		keyId,
 	)
 	if ignoreBusy && sqlite.IsPrimaryResultCodeErr(err, sqlite.ResultCodeBusy) {
+		ignored = true
 		err = nil
 	}
 	return
@@ -468,7 +469,7 @@ func (conn conn) forgetBlobsForKeyId(keyId rowid) (err error) {
 
 const logTrimmedKeys = true
 
-func (conn conn) trimToCapacity() (err error) {
+func (conn conn) trimToCapacity(eachKey func(keyId rowid)) (err error) {
 	capacity, err := conn.getCapacity()
 	if err != nil {
 		return
@@ -491,12 +492,13 @@ func (conn conn) trimToCapacity() (err error) {
 			accessCount int64
 			createTime  time.Time
 			length      int64
+			keyId       int64
 		)
 		ok, err := conn.sqliteQueryRow(
 			sqlQuery(`
 				delete from keys
 				where key_id=(select key_id from keys order by last_used, access_count, create_time limit 1)
-				returning key, last_used, access_count, create_time, length
+				returning key, last_used, access_count, create_time, length, key_id
 			`),
 			func(stmt *sqlite.Stmt) error {
 				if logTrimmedKeys {
@@ -506,6 +508,7 @@ func (conn conn) trimToCapacity() (err error) {
 					createTime = timeFromStmtColumn(stmt, 3)
 					length = stmt.ColumnInt64(4)
 				}
+				keyId = stmt.ColumnInt64(5)
 				return nil
 			},
 		)
@@ -514,6 +517,9 @@ func (conn conn) trimToCapacity() (err error) {
 		}
 		if !ok {
 			return errors.New("couldn't find keys to delete")
+		}
+		if eachKey != nil {
+			eachKey(keyId)
 		}
 		if logTrimmedKeys {
 			conn.logger.Levelf(
