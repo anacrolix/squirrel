@@ -197,6 +197,9 @@ type Cache struct {
 	opts       NewCacheOpts
 	closeCond  sync.Cond
 	closed     bool
+	// Anytime we know that we have to write to the sqlite conn, we should try to synchronize on a
+	// single connection for cache re-use and to minimize busy waits on multiple connections.
+	singleWriter sync.Mutex
 }
 
 func (c *Cache) getCacheErr() error {
@@ -409,6 +412,8 @@ func (c *Cache) Tx(f func(tx *Tx) error) (err error) {
 }
 
 func (c *Cache) TxImmediate(f func(tx *Tx) error) (err error) {
+	c.singleWriter.Lock()
+	defer c.singleWriter.Unlock()
 	return c.runTx(f, "immediate")
 }
 
