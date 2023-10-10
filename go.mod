@@ -1,6 +1,6 @@
 module github.com/anacrolix/squirrel
 
-go 1.20
+go 1.21
 
 require (
 	github.com/ajwerner/btree v0.0.0-20211221152037-f427b3e689c0
