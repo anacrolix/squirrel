@@ -6,6 +6,7 @@ import (
 	"io"
 	"log"
 	"math/rand"
+	"strings"
 	"testing"
 	"time"
 
@@ -245,4 +246,33 @@ func TestIterBlobsWithHigherCachedBlobs(t *testing.T) {
 	n, err = pb.ReadAt(b[:], 0)
 	qtc.Assert(err, qt.Satisfies, squirrelTesting.EofOrNil)
 	qtc.Assert(n, qt.Equals, 2)
+}
+
+func TestCreateChangeSize(t *testing.T) {
+	qtc := qt.New(t)
+	cache := squirrel.TestingNewCache(qtc, squirrel.TestingDefaultCacheOpts(qtc))
+	putViaCreate := func(key, value string) (err error) {
+		pb, err := cache.Create(key, squirrel.CreateOpts{Length: int64(len(value))})
+		if err != nil {
+			return
+		}
+		defer pb.Close()
+		n, err := io.CopyBuffer(io.NewOffsetWriter(pb, 0), strings.NewReader(value), make([]byte, 2))
+		if err != nil {
+			return
+		}
+		if n != int64(len(value)) {
+			panic(n)
+		}
+		return
+	}
+	err := putViaCreate("hello", "world")
+	qtc.Assert(err, qt.IsNil)
+	err = putViaCreate("hello", "america")
+	qtc.Assert(err, qt.IsNil)
+	err = putViaCreate("hello", "mundo")
+	qtc.Assert(err, qt.IsNil)
+	value, err := cache.ReadAll("hello", nil)
+	qtc.Check(err, qt.IsNil)
+	qtc.Check(string(value), qt.Equals, "mundo")
 }
