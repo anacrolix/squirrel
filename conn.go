@@ -377,8 +377,19 @@ func (conn conn) openKey(key string) (ret keyCols, err error) {
 
 func (conn conn) createKey(key string, create CreateOpts) (keyId rowid, err error) {
 	cols, err := conn.openKey(key)
-	if err != ErrNotFound {
-		keyId = cols.id
+	switch {
+	case err == nil:
+		if cols.length == create.Length {
+			keyId = cols.id
+			return
+		}
+		err = conn.deleteKey(key)
+		if err != nil && !errors.Is(err, ErrNotFound) {
+			err = fmt.Errorf("deleting existing item with different length: %w", err)
+			return
+		}
+	case errors.Is(err, ErrNotFound):
+	default:
 		return
 	}
 	err = conn.sqliteQueryMustOneRow(
@@ -568,5 +579,26 @@ func (conn conn) getCapacity() (capacity g.Option[int64], err error) {
 			return nil
 		},
 	)
+	return
+}
+
+func (conn conn) deleteKey(name string) (err error) {
+	var keyId rowid
+	ok, err := conn.sqliteQueryRow(
+		sqlQuery("delete from keys where key=? returning key_id"),
+		func(stmt *sqlite.Stmt) error {
+			keyId = stmt.ColumnInt64(0)
+			return nil
+		},
+		name,
+	)
+	if err != nil {
+		return
+	}
+	if !ok {
+		err = ErrNotFound
+		return
+	}
+	err = conn.forgetBlobsForKeyId(keyId)
 	return
 }

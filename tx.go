@@ -134,24 +134,7 @@ func (tx *Tx) SetTag(key, name string, value any) (err error) {
 }
 
 func (tx *Tx) Delete(name string) (err error) {
-	var keyId rowid
-	ok, err := tx.conn.sqliteQueryRow(
-		sqlQuery("delete from keys where key=? returning key_id"),
-		func(stmt *sqlite.Stmt) error {
-			keyId = stmt.ColumnInt64(0)
-			return nil
-		},
-		name,
-	)
-	if err != nil {
-		return
-	}
-	if !ok {
-		err = ErrNotFound
-		return
-	}
-	err = tx.conn.forgetBlobsForKeyId(keyId)
-	return
+	return tx.conn.deleteKey(name)
 }
 
 // Returns a PinnedBlob. The item must already exist. You must call PinnedBlob.Close when done
