@@ -37,3 +37,11 @@ require (
 	modernc.org/sqlite v1.21.1 // indirect
 	zombiezen.com/go/sqlite v0.13.1 // indirect
 )
+
+retract (
+	// Contains retractions only
+	v0.6.2
+	// Bad Cache.Create
+	v0.6.0
+)
+
