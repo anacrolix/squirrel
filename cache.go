@@ -346,8 +346,6 @@ func (c *Cache) Put(name string, b []byte) (err error) {
 	return errors.Join(err, txErr)
 }
 
-var ErrNotFound = errors.New("not found")
-
 func (c *Cache) ReadFull(key string, b []byte) (n int, err error) {
 	err = c.wrapTxMethod(func(tx *Tx) error {
 		n, err = tx.ReadFull(key, b)
@@ -451,6 +449,7 @@ func (c conn) lastUsed(rowid rowid) (lastUsed time.Time, err error) {
 		return
 	}
 	if !ok {
+		// This doesn't look right.
 		err = ErrNotFound
 	}
 	return
