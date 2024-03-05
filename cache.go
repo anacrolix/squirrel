@@ -3,9 +3,10 @@ package squirrel
 import (
 	"errors"
 	"fmt"
+	"time"
+
 	"github.com/anacrolix/log"
 	"github.com/anacrolix/sync"
-	"time"
 
 	"github.com/ajwerner/btree"
 
@@ -262,9 +263,12 @@ func (c *Cache) getPinnedBlob(
 				return
 			}
 			finishTx := make(chan struct{})
-			ret.finishTx = sync.OnceFunc(func() {
-				close(finishTx)
-			})
+			var once sync.Once
+			ret.finishTx = func() {
+				once.Do(func() {
+					close(finishTx)
+				})
+			}
 			ret.PinnedBlob = pb
 			close(ready)
 			closed = true

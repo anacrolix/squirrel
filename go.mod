@@ -1,6 +1,6 @@
 module github.com/anacrolix/squirrel
 
-go 1.21
+go 1.20
 
 require (
 	github.com/ajwerner/btree v0.0.0-20211221152037-f427b3e689c0
@@ -8,7 +8,7 @@ require (
 	github.com/anacrolix/envpprof v1.3.0
 	github.com/anacrolix/generics v0.0.0-20230816105729-c755655aee45
 	github.com/anacrolix/log v0.14.3-0.20230823030427-4b296d71a6b4
-	github.com/anacrolix/sync v0.4.1-0.20230926072150-b8cd7cfb92d0
+	github.com/anacrolix/sync v0.5.1
 	github.com/frankban/quicktest v1.14.6
 	github.com/go-llsqlite/adapter v0.0.0-20230927005056-7f5ce7f0c916
 	golang.org/x/sync v0.3.0
@@ -44,4 +44,3 @@ retract (
 	// Bad Cache.Create
 	v0.6.0
 )
-
