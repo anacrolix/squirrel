@@ -11,8 +11,8 @@ import (
 	"time"
 
 	_ "github.com/anacrolix/envpprof"
-	qt "github.com/frankban/quicktest"
 	sqlite "github.com/go-llsqlite/adapter"
+	"github.com/go-quicktest/qt"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/anacrolix/squirrel"
@@ -24,35 +24,33 @@ func init() {
 }
 
 func TestBlobWriteOutOfBounds(t *testing.T) {
-	c := qt.New(t)
-	cache := squirrel.TestingNewCache(c, squirrel.NewCacheOpts{})
+	cache := squirrel.TestingNewCache(t, squirrel.NewCacheOpts{})
 	_, err := cache.OpenPinnedReadOnly("greeting")
-	c.Check(err, qt.ErrorIs, squirrel.ErrNotFound)
+	qt.Check(t, qt.ErrorIs(err, squirrel.ErrNotFound))
 	b := cache.BlobWithLength("greeting", 6)
 	n, err := b.WriteAt([]byte("hello "), 0)
-	c.Assert(err, qt.IsNil)
-	c.Check(n, qt.Equals, 6)
+	qt.Assert(t, qt.IsNil(err))
+	qt.Check(t, qt.Equals(n, 6))
 	n, err = b.WriteAt([]byte("world\n"), 6)
-	c.Check(err, qt.IsNotNil)
-	c.Check(n, qt.Equals, 0)
+	qt.Check(t, qt.IsNotNil(err))
+	qt.Check(t, qt.Equals(n, 0))
 }
 
 func TestTagDeletedWithBlob(t *testing.T) {
-	c := qt.New(t)
 	opts := squirrel.NewCacheOpts{}
 	opts.Capacity = 43
-	cache := squirrel.TestingNewCache(c, squirrel.NewCacheOpts{})
+	cache := squirrel.TestingNewCache(t, squirrel.NewCacheOpts{})
 	b := cache.OpenWithLength("hello", 42)
 	b.SetTag("gender", "yes")
-	c.Assert(b.GetTag("gender", func(stmt *sqlite.Stmt) {
-		c.Check(stmt.ColumnText(0), qt.Equals, "yes")
-	}), qt.IsNil)
+	qt.Assert(t, qt.IsNil(b.GetTag("gender", func(stmt *sqlite.Stmt) {
+		qt.Check(t, qt.Equals(stmt.ColumnText(0), "yes"))
+	})))
 	b.Delete()
 	var tagOk bool
 	b.GetTag("gender", func(stmt *sqlite.Stmt) {
 		tagOk = true
 	})
-	c.Check(tagOk, qt.IsFalse)
+	qt.Check(t, qt.IsFalse(tagOk))
 }
 
 func waitSqliteSubsec() {
@@ -64,20 +62,19 @@ func waitSqliteSubsec() {
 // apply access.
 func TestIgnoreBusyUpdatingAccessOnRead(t *testing.T) {
 	t.Skipf("this test depends on access times being updated during a transaction")
-	qtc := qt.New(t)
 	cacheOpts := squirrel.TestingDefaultCacheOpts(t)
 
-	c1 := squirrel.TestingNewCache(qtc, cacheOpts)
+	c1 := squirrel.TestingNewCache(t, cacheOpts)
 	defer c1.Close()
 	putValue := []byte("mundo")
 	err := c1.Put(defaultKey, putValue)
-	qtc.Assert(err, qt.IsNil)
+	qt.Assert(t, qt.IsNil(err))
 	putTime, err := c1.NewBlobRef(defaultKey).LastUsed()
-	qtc.Assert(err, qt.IsNil)
+	qt.Assert(t, qt.IsNil(err))
 	t.Logf("put time: %v", putTime.UnixMilli())
 
 	// There should be no lock on the database.
-	c2 := squirrel.TestingNewCache(qtc, cacheOpts)
+	c2 := squirrel.TestingNewCache(t, cacheOpts)
 
 	waitSqliteSubsec()
 	closeWait := make(chan struct{})
@@ -87,16 +84,16 @@ func TestIgnoreBusyUpdatingAccessOnRead(t *testing.T) {
 	eg.Go(func() error {
 		return c1.Tx(func(tx *squirrel.Tx) error {
 			writePb, err := tx.OpenPinned(defaultKey)
-			qtc.Assert(err, qt.IsNil)
+			qt.Assert(t, qt.IsNil(err))
 			defer writePb.Close()
 			// Upgrade to a write.
 			_, err = writePb.WriteAt(defaultValue, 0)
-			qtc.Assert(putValue, qt.Not(qt.DeepEquals), defaultValue)
-			qtc.Assert(err, qt.IsNil)
+			qt.Assert(t, qt.Not(qt.DeepEquals(putValue, defaultValue)))
+			qt.Assert(t, qt.IsNil(err))
 			writeTime, err = writePb.LastUsed()
-			qtc.Assert(err, qt.IsNil)
-			qtc.Assert(writeTime, qt.Not(qt.Equals), putTime)
-			qtc.Assert(err, qt.IsNil)
+			qt.Assert(t, qt.IsNil(err))
+			qt.Assert(t, qt.Not(qt.Equals(writeTime, putTime)))
+			qt.Assert(t, qt.IsNil(err))
 			t.Logf("write time: %v", writeTime.UnixMilli())
 			<-closeWait
 			return writePb.Close()
@@ -104,18 +101,18 @@ func TestIgnoreBusyUpdatingAccessOnRead(t *testing.T) {
 	})
 
 	// Check we read the put without error, despite a write transaction being held open by writePb.
-	testReadOnlyPinned(qtc, c2, defaultKey, putValue, putTime, false)
+	testReadOnlyPinned(t, c2, defaultKey, putValue, putTime, false)
 	// Signal the Tx to complete.
 	close(closeWait)
 	// Wait for the Tx to have completed.
-	qtc.Check(eg.Wait(), qt.IsNil)
+	qt.Check(t, qt.IsNil(eg.Wait()))
 	// Now check that we read the new written value, and our read updates access.
-	testReadOnlyPinned(qtc, c2, defaultKey, defaultValue, writeTime, true)
+	testReadOnlyPinned(t, c2, defaultKey, defaultValue, writeTime, true)
 
 }
 
 func testReadOnlyPinned(
-	qtc *qt.C,
+	tb testing.TB,
 	cache *squirrel.Cache,
 	key string,
 	value []byte,
@@ -125,31 +122,30 @@ func testReadOnlyPinned(
 	r2, err := cache.OpenPinnedReadOnly(key)
 	defer r2.Close()
 	beforeRead, err := r2.LastUsed()
-	qtc.Check(beforeRead.UnixMilli(), qt.Equals, lastUsed.UnixMilli())
+	qt.Check(tb, qt.Equals(beforeRead.UnixMilli(), lastUsed.UnixMilli()))
 	waitSqliteSubsec()
 	b2, err := io.ReadAll(io.NewSectionReader(r2, 0, r2.Length()))
-	qtc.Assert(err, qt.Satisfies, squirrelTesting.EofOrNil)
-	qtc.Check(b2, qt.DeepEquals, value)
+	qt.Assert(tb, qt.Satisfies(err, squirrelTesting.EofOrNil))
+	qt.Check(tb, qt.DeepEquals(b2, value))
 	afterRead, err := r2.LastUsed()
-	qtc.Assert(err, qt.IsNil)
+	qt.Assert(tb, qt.IsNil(err))
 	if expectAccessUpdate {
-		qtc.Check(afterRead.UnixMilli(), qt.Not(qt.Equals), beforeRead.UnixMilli())
+		qt.Check(tb, qt.Not(qt.Equals(afterRead.UnixMilli(), beforeRead.UnixMilli())))
 	} else {
-		qtc.Check(afterRead.UnixMilli(), qt.Equals, beforeRead.UnixMilli())
+		qt.Check(tb, qt.Equals(afterRead.UnixMilli(), beforeRead.UnixMilli()))
 	}
 }
 
 // Check that we can read while there's a write transaction, and not error due to not being able to
 // apply access.
 func TestNewCacheWaitsForWrite(t *testing.T) {
-	qtc := qt.New(t)
 	cacheOpts := squirrel.TestingDefaultCacheOpts(t)
 
-	c1 := squirrel.TestingNewCache(qtc, cacheOpts)
+	c1 := squirrel.TestingNewCache(t, cacheOpts)
 	defer c1.Close()
 	putValue := []byte("mundo")
 	err := c1.Put(defaultKey, putValue)
-	qtc.Assert(err, qt.IsNil)
+	qt.Assert(t, qt.IsNil(err))
 
 	openSecondCache := make(chan struct{})
 	completeTx := make(chan struct{})
@@ -158,12 +154,12 @@ func TestNewCacheWaitsForWrite(t *testing.T) {
 	eg.Go(func() error {
 		return c1.Tx(func(tx *squirrel.Tx) error {
 			writePb, err := tx.OpenPinned(defaultKey)
-			qtc.Assert(err, qt.IsNil)
+			qt.Assert(t, qt.IsNil(err))
 			defer writePb.Close()
 			// Upgrade to a write.
 			_, err = writePb.WriteAt(defaultValue, 0)
-			qtc.Assert(putValue, qt.Not(qt.DeepEquals), defaultValue)
-			qtc.Assert(err, qt.IsNil)
+			qt.Assert(t, qt.Not(qt.DeepEquals(putValue, defaultValue)))
+			qt.Assert(t, qt.IsNil(err))
 			close(openSecondCache)
 			// Wait here until initializing another cache instance blocks.
 			<-completeTx
@@ -174,20 +170,19 @@ func TestNewCacheWaitsForWrite(t *testing.T) {
 	<-openSecondCache
 	// This will cause NewCache to trigger the write Tx above to complete, thereby unblocking it.
 	cacheOpts.ConnBlockedOnBusy = &completeTx
-	c2 := squirrel.TestingNewCache(qtc, cacheOpts)
-	qtc.Check(c2.Close(), qt.IsNil)
-	qtc.Check(eg.Wait(), qt.IsNil)
+	c2 := squirrel.TestingNewCache(t, cacheOpts)
+	qt.Check(t, qt.IsNil(c2.Close()))
+	qt.Check(t, qt.IsNil(eg.Wait()))
 }
 
 func TestTxWhileOpenedPinnedBlob(t *testing.T) {
-	qtc := qt.New(t)
-	cacheOpts := squirrel.TestingDefaultCacheOpts(qtc)
+	cacheOpts := squirrel.TestingDefaultCacheOpts(t)
 	cacheOpts.SetJournalMode = "wal"
-	cache := squirrel.TestingNewCache(qtc, cacheOpts)
+	cache := squirrel.TestingNewCache(t, cacheOpts)
 	err := cache.Put(defaultKey, defaultValue)
-	qtc.Assert(err, qt.IsNil)
+	qt.Assert(t, qt.IsNil(err))
 	pb, err := cache.OpenPinnedReadOnly(defaultKey)
-	qtc.Assert(err, qt.IsNil)
+	qt.Assert(t, qt.IsNil(err))
 	eg, _ := errgroup.WithContext(context.Background())
 	txStarted := make(chan struct{})
 	eg.Go(func() error {
@@ -198,59 +193,56 @@ func TestTxWhileOpenedPinnedBlob(t *testing.T) {
 	})
 	<-txStarted
 	b, err := io.ReadAll(io.NewSectionReader(pb, 0, pb.Length()))
-	qtc.Assert(err, qt.Satisfies, squirrelTesting.EofOrNil)
-	qtc.Assert(b, qt.DeepEquals, defaultValue)
+	qt.Assert(t, qt.Satisfies(err, squirrelTesting.EofOrNil))
+	qt.Assert(t, qt.DeepEquals(b, defaultValue))
 	err = pb.Close()
-	qtc.Assert(err, qt.IsNil)
+	qt.Assert(t, qt.IsNil(err))
 	err = eg.Wait()
-	qtc.Assert(err, qt.IsNil)
+	qt.Assert(t, qt.IsNil(err))
 	pb, err = cache.OpenPinnedReadOnly(defaultKey)
-	qtc.Assert(err, qt.ErrorIs, squirrel.ErrNotFound)
+	qt.Assert(t, qt.ErrorIs(err, squirrel.ErrNotFound))
 }
 
 func TestWriteVeryLargeBlob(t *testing.T) {
-	qtc := qt.New(t)
-	cacheOpts := squirrel.TestingDefaultCacheOpts(qtc)
-	cache := squirrel.TestingNewCache(qtc, cacheOpts)
+	cacheOpts := squirrel.TestingDefaultCacheOpts(t)
+	cache := squirrel.TestingNewCache(t, cacheOpts)
 	source := rand.NewSource(1)
 	randRdr := rand.New(source)
 	const valueLen int64 = 1 << 30
 	blob, err := cache.Create(defaultKey, squirrel.CreateOpts{valueLen})
-	qtc.Assert(err, qt.IsNil)
+	qt.Assert(t, qt.IsNil(err))
 	h := newFastestHash()
 	n, _ := io.Copy(io.MultiWriter(io.NewOffsetWriter(blob, 0), h), randRdr)
-	qtc.Assert(n, qt.Equals, valueLen)
-	qtc.Assert(blob.Close(), qt.IsNil)
+	qt.Assert(t, qt.Equals(n, valueLen))
+	qt.Assert(t, qt.IsNil(blob.Close()))
 	readHash := newFastestHash()
 	blob, err = cache.OpenPinnedReadOnly(defaultKey)
-	qtc.Assert(err, qt.IsNil)
+	qt.Assert(t, qt.IsNil(err))
 	defer blob.Close()
 	n, err = io.Copy(readHash, io.NewSectionReader(blob, 0, valueLen))
-	qtc.Check(err, qt.IsNil)
-	qtc.Assert(n, qt.Equals, valueLen)
-	qtc.Assert(h.Sum32(), qt.Equals, readHash.Sum32())
+	qt.Check(t, qt.IsNil(err))
+	qt.Assert(t, qt.Equals(n, valueLen))
+	qt.Assert(t, qt.Equals(h.Sum32(), readHash.Sum32()))
 }
 
 func TestIterBlobsWithHigherCachedBlobs(t *testing.T) {
-	qtc := qt.New(t)
-	cacheOpts := squirrel.TestingDefaultCacheOpts(qtc)
+	cacheOpts := squirrel.TestingDefaultCacheOpts(t)
 	cacheOpts.MaxBlobSize.Set(1)
-	cache := squirrel.TestingNewCache(qtc, cacheOpts)
+	cache := squirrel.TestingNewCache(t, cacheOpts)
 	pb, err := cache.Create(defaultKey, squirrel.CreateOpts{Length: 2})
-	qtc.Assert(err, qt.IsNil)
+	qt.Assert(t, qt.IsNil(err))
 	defer pb.Close()
 	var b [2]byte
 	n, err := pb.ReadAt(b[:], 1)
-	qtc.Assert(err, qt.Satisfies, squirrelTesting.EofOrNil)
-	qtc.Assert(n, qt.Equals, 1)
+	qt.Assert(t, qt.Satisfies(err, squirrelTesting.EofOrNil))
+	qt.Assert(t, qt.Equals(n, 1))
 	n, err = pb.ReadAt(b[:], 0)
-	qtc.Assert(err, qt.Satisfies, squirrelTesting.EofOrNil)
-	qtc.Assert(n, qt.Equals, 2)
+	qt.Assert(t, qt.Satisfies(err, squirrelTesting.EofOrNil))
+	qt.Assert(t, qt.Equals(n, 2))
 }
 
 func TestCreateChangeSize(t *testing.T) {
-	qtc := qt.New(t)
-	cache := squirrel.TestingNewCache(qtc, squirrel.TestingDefaultCacheOpts(qtc))
+	cache := squirrel.TestingNewCache(t, squirrel.TestingDefaultCacheOpts(t))
 	putViaCreate := func(key, value string) (err error) {
 		pb, err := cache.Create(key, squirrel.CreateOpts{Length: int64(len(value))})
 		if err != nil {
@@ -267,12 +259,12 @@ func TestCreateChangeSize(t *testing.T) {
 		return
 	}
 	err := putViaCreate("hello", "world")
-	qtc.Assert(err, qt.IsNil)
+	qt.Assert(t, qt.IsNil(err))
 	err = putViaCreate("hello", "america")
-	qtc.Assert(err, qt.IsNil)
+	qt.Assert(t, qt.IsNil(err))
 	err = putViaCreate("hello", "mundo")
-	qtc.Assert(err, qt.IsNil)
+	qt.Assert(t, qt.IsNil(err))
 	value, err := cache.ReadAll("hello", nil)
-	qtc.Check(err, qt.IsNil)
-	qtc.Check(string(value), qt.Equals, "mundo")
+	qt.Check(t, qt.IsNil(err))
+	qt.Check(t, qt.Equals(string(value), "mundo"))
 }

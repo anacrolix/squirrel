@@ -8,17 +8,16 @@ import (
 	"testing"
 
 	g "github.com/anacrolix/generics"
-	qt "github.com/frankban/quicktest"
+	"github.com/go-quicktest/qt"
 
 	"github.com/anacrolix/squirrel"
 )
 
 func benchCacheGets(cache *squirrel.Cache, b *testing.B) {
-	c := qt.New(b)
 	key := "hello"
 	value := []byte("world")
 	err := cache.Put(key, []byte("world"))
-	c.Assert(err, qt.IsNil)
+	qt.Assert(b, qt.IsNil(err))
 	b.Run("Hit", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			pb, err := cache.OpenPinnedReadOnly(key)
@@ -66,9 +65,8 @@ func benchCacheGets(cache *squirrel.Cache, b *testing.B) {
 }
 
 func BenchmarkCacheDefaults(b *testing.B) {
-	c := qt.New(b)
 	cacheOpts := squirrel.TestingDefaultCacheOpts(b)
-	cache := squirrel.TestingNewCache(c, cacheOpts)
+	cache := squirrel.TestingNewCache(b, cacheOpts)
 	benchCacheGets(cache, b)
 }
 
