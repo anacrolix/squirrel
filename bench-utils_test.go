@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	qt "github.com/frankban/quicktest"
+	"github.com/go-quicktest/qt"
 
 	"github.com/anacrolix/squirrel"
 )
@@ -16,16 +16,15 @@ func benchCache(
 	setup func(cache *squirrel.Cache) error,
 	loop func(cache *squirrel.Cache) error,
 ) {
-	c := qt.New(b)
-	cache := squirrel.TestingNewCache(c, cacheOpts)
+	cache := squirrel.TestingNewCache(b, cacheOpts)
 	err := setup(cache)
-	c.Assert(err, qt.IsNil)
+	qt.Assert(b, qt.IsNil(err))
 	started := time.Now()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		err = loop(cache)
 		if err != nil {
-			c.Fatalf("error in iteration %v after %v: %v", i, time.Since(started), err)
+			b.Fatalf("error in iteration %v after %v: %v", i, time.Since(started), err)
 		}
 	}
 }
@@ -36,14 +35,13 @@ func benchCacheWrapLoop(
 	setup func(cache *squirrel.Cache) error,
 	loop func(cache *squirrel.Cache) error,
 ) {
-	c := qt.New(b)
-	cache := squirrel.TestingNewCache(c, cacheOpts)
+	cache := squirrel.TestingNewCache(b, cacheOpts)
 	err := setup(cache)
-	c.Assert(err, qt.IsNil)
+	qt.Assert(b, qt.IsNil(err))
 	b.ResetTimer()
 	err = loop(cache)
 	b.StopTimer()
-	c.Assert(err, qt.IsNil)
+	qt.Assert(b, qt.IsNil(err))
 }
 
 const defaultKey = "hello"

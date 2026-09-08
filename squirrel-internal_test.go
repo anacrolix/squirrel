@@ -6,22 +6,21 @@ import (
 	"testing"
 
 	"github.com/anacrolix/log"
-	qt "github.com/frankban/quicktest"
 	sqlite "github.com/go-llsqlite/adapter"
 	"github.com/go-llsqlite/adapter/sqlitex"
+	"github.com/go-quicktest/qt"
 	"golang.org/x/sync/errgroup"
 )
 
 func TestConcurrentCreateBlob(t *testing.T) {
-	c := qt.New(t)
-	opts := TestingDefaultCacheOpts(c)
+	opts := TestingDefaultCacheOpts(t)
 	opts.Capacity = -1
 	logger := log.Default.WithNames("test")
 	t.Logf("shared path: %q", opts.Path)
 	opts.SetJournalMode = "wal"
 	var eg errgroup.Group
 	doPut := func(value string) func() error {
-		cache := TestingNewCache(c, opts)
+		cache := TestingNewCache(t, opts)
 		logger.Levelf(log.Debug, "opened cache for %q", value)
 		return func() (err error) {
 			logger.Levelf(log.Debug, "putting %q", value)
@@ -43,23 +42,23 @@ func TestConcurrentCreateBlob(t *testing.T) {
 	for _, j := range jobs {
 		eg.Go(j)
 	}
-	c.Assert(eg.Wait(), qt.IsNil)
-	cache := TestingNewCache(c, opts)
+	qt.Assert(t, qt.IsNil(eg.Wait()))
+	cache := TestingNewCache(t, opts)
 	pb, err := cache.OpenPinnedReadOnly("greeting")
-	c.Assert(err, qt.IsNil)
+	qt.Assert(t, qt.IsNil(err))
 	b, err := io.ReadAll(io.NewSectionReader(pb, 0, pb.Length()))
-	c.Check(pb.Close(), qt.IsNil)
-	c.Check(err, qt.Satisfies, squirrelTesting.EofOrNil)
-	c.Check(allValues, qt.Contains, string(b))
+	qt.Check(t, qt.IsNil(pb.Close()))
+	qt.Check(t, qt.Satisfies(err, squirrelTesting.EofOrNil))
+	qt.Check(t, qt.SliceContains(allValues, string(b)))
 	conn, err := newSqliteConn(opts.NewConnOpts)
-	c.Assert(err, qt.IsNil)
+	qt.Assert(t, qt.IsNil(err))
 	defer conn.Close()
 	var count setOnce[int64]
-	c.Assert(sqlitex.Exec(conn, "select count(*) from blobs", func(stmt *sqlite.Stmt) error {
+	qt.Assert(t, qt.IsNil(sqlitex.Exec(conn, "select count(*) from blobs", func(stmt *sqlite.Stmt) error {
 		count.Set(stmt.ColumnInt64(0))
 		return nil
-	}), qt.IsNil)
-	c.Check(count.Value(), qt.Equals, int64(1))
+	})))
+	qt.Check(t, qt.Equals(count.Value(), int64(1)))
 }
 
 // Show that seeking GE past the end means Prev won't work and we have to use Last.
@@ -67,14 +66,13 @@ func TestSeekingBlobBtree(t *testing.T) {
 	blobs := makeBlobCache()
 	blobs.Upsert(valueKey{1, 0}, nil)
 	blobs.Upsert(valueKey{1, 1}, nil)
-	qtc := qt.New(t)
-	qtc.Assert(blobs.Len(), qt.Equals, 2)
+	qt.Assert(t, qt.Equals(blobs.Len(), 2))
 	it := blobs.Iterator()
 	it.SeekGE(valueKey{1, 1})
 	it.Prev()
-	qtc.Assert(it.Cur(), qt.Equals, valueKey{1, 0})
+	qt.Assert(t, qt.Equals(it.Cur(), valueKey{1, 0}))
 	it.SeekGE(valueKey{1, 2})
-	qtc.Check(it.Valid(), qt.IsFalse)
+	qt.Check(t, qt.IsFalse(it.Valid()))
 	it.Last()
-	qtc.Assert(it.Cur(), qt.Equals, valueKey{1, 1})
+	qt.Assert(t, qt.Equals(it.Cur(), valueKey{1, 1}))
 }

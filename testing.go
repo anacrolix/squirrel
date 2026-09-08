@@ -5,24 +5,24 @@ import (
 	"path/filepath"
 	"testing"
 
-	qt "github.com/frankban/quicktest"
+	"github.com/go-quicktest/qt"
 )
 
-func TestingNewCache(c *qt.C, opts NewCacheOpts) *Cache {
+func TestingNewCache(tb testing.TB, opts NewCacheOpts) *Cache {
 	if opts.SetJournalMode == "wal" && (opts.Memory || opts.Path == "") {
-		c.Skip("can't use WAL with anonymous or memory database")
+		tb.Skip("can't use WAL with anonymous or memory database")
 	}
 	if opts.Memory && opts.SetLockingMode != "exclusive" {
-		c.Skip("in-memory databases are always exclusive")
+		tb.Skip("in-memory databases are always exclusive")
 	}
 	if opts.Path == "" && opts.SetLockingMode == "normal" {
-		c.Skip("anonymous databases are always exclusive")
+		tb.Skip("anonymous databases are always exclusive")
 	}
 	cache, err := NewCache(opts)
-	c.Assert(err, qt.IsNil)
-	c.Cleanup(func() {
+	qt.Assert(tb, qt.IsNil(err))
+	tb.Cleanup(func() {
 		err := cache.Close()
-		c.Check(err, qt.IsNil)
+		qt.Check(tb, qt.IsNil(err))
 	})
 	return cache
 }
